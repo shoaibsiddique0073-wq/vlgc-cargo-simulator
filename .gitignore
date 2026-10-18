@@ -1,0 +1,4 @@
+vlgc_sim
+*.o
+*.out
+__pycache__/

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+  @font-face { font-family: 'Orbitron'; src: url('/assets/fonts/Orbitron.ttf') format('truetype'); }
+  @font-face { font-family: 'JetBrainsMono'; src: url('/assets/fonts/JetBrainsMono.ttf') format('truetype'); }
+
+  :root {
+    --bg-main: #030710; --bg-panel: rgba(2,10,22,0.95); --bg-card: #071224;
+    --fg-main: #00ffff; --fg-accent: #00ffaa; --border-col: #0088aa;
+  }
+  body.theme-dark {
+    --bg-main: #0c0e12; --bg-panel: rgba(18,21,28,0.96); --bg-card: #161a22;
+    --fg-main: #d8dee9; --fg-accent: #88c0d0; --border-col: #4c566a;
+  }
+  body.theme-term {
+    --bg-main: #020802; --bg-panel: rgba(4,16,4,0.96); --bg-card: #061806;
+    --fg-main: #33ff33; --fg-accent: #88ff88; --border-col: #22aa22;
+  }
+  /* Toggleable Screen Info & Controls Classes */
+  body.hide-info .info-tag, body.hide-info #draftOverlay { display: none !important; }
+  body.hide-ctrl .ctrl-panel, body.hide-ctrl .hotspot-bar { display: none !important; }
+
+  body { margin: 0; background: var(--bg-main); color: var(--fg-main); font-family: 'JetBrainsMono', monospace; overflow: hidden; font-size: 11px; user-select: none; }
+  b, .title-font { font-family: 'Orbitron', sans-serif; letter-spacing: 0.4px; }
+  #topbar { position: absolute; top: 0; left: 0; right: 0; background: var(--bg-panel); border-bottom: 1px solid var(--border-col); padding: 4px 6px; z-index: 20; display: flex; flex-direction: column; gap: 3px; }
+  .nav-bar { display: flex; flex-wrap: wrap; gap: 2px; }
+  .nav-bar button { flex: 1; min-width: 40px; background: var(--bg-card); color: var(--fg-main); border: 1px solid var(--border-col); padding: 4px 2px; font-family: 'Orbitron', monospace; font-size: 8px; font-weight: bold; border-radius: 3px; }
+  .nav-bar button.act { background: var(--fg-main); color: #000; border-color: #fff; }
+  .nav-bar button.esd-btn { background: #900; color: #fff; border-color: #f44; }
+  .view-screen { position: absolute; top: 84px; bottom: 0; left: 0; right: 0; display: none; overflow-y: auto; padding: 8px; box-sizing: border-box; background: var(--bg-main); }
+  #view3d { position: absolute; top: 84px; bottom: 0; left: 0; right: 0; }
+  #draftOverlay { position: absolute; top: 8px; left: 8px; background: var(--bg-panel); border: 1px solid var(--border-col); padding: 6px 10px; border-radius: 5px; pointer-events: none; z-index: 10; line-height: 1.45; }
+  .hotspot-bar { position: absolute; bottom: 10px; left: 8px; right: 8px; background: var(--bg-panel); border: 1px solid var(--border-col); padding: 7px; border-radius: 6px; z-index: 10; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border-col); border-radius: 5px; padding: 7px; margin-bottom: 6px; }
+  .row { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; gap: 4px; flex-wrap: wrap; }
+  input[type=range] { flex: 1; height: 14px; }
+  button.sm { background: #034; color: var(--fg-main); border: 1px solid var(--border-col); padding: 3px 5px; font-family: 'JetBrainsMono', monospace; font-size: 9.5px; border-radius: 3px; }
+  button.open { background: #062; color: #4f4; border-color: #4f4; font-weight: bold; }
+  button.shut { background: #511; color: #f66; border-color: #f66; }
+  button.hot { background: #730; color: #fa0; border-color: #fa0; font-weight: bold; }
+  svg { width: 100%; background: #02060d; border: 1px solid var(--border-col); border-radius: 4px; }
+  canvas.curve-cv { width: 100%; height: 85px; background: #02050a; border: 1px solid var(--border-col); border-radius: 4px; margin-top: 4px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="row">
+    <span id="hudTop"><b>VLGC CCR</b> | Initializing...</span>
+    <div>
+      <button id="btnInfo" class="sm open" onclick="toggleInfo()">📊 INFO</button>
+      <button id="btnCtrl" class="sm open" onclick="toggleCtrl()">🎛️ CTRL</button>
+      <button id="btnAud" class="sm open" onclick="toggleAudio()">🔊 SND</button>
+      <button class="sm" onclick="cycleTheme()">🎨</button>
+      <button class="sm" onclick="cmd('spd=0')">0x</button>
+      <button class="sm" onclick="cmd('spd=1')">1x</button>
+      <button class="sm" onclick="cmd('spd=10')">10x</button>
+      <button class="sm" onclick="cmd('spd=60')">60x</button>
+      <button class="sm" onclick="cmd('spd=300')">300x</button>
+      <button class="sm shut" onclick="cmd('esd=1','alarm_buzzer')">🚨 ESD</button>
+    </div>
+  </div>
+  <div class="nav-bar">
+    <button id="nb0" class="act" onclick="setView(0)">🚢 3D</button>
+    <button id="nb1" onclick="setView(1)">CT1</button>
+    <button id="nb2" onclick="setView(2)">CT2</button>
+    <button id="nb3" onclick="setView(3)">CT3</button>
+    <button id="nb4" onclick="setView(4)">CT4</button>
+    <button id="nb5" onclick="setView(5)">HDR/MAST</button>
+    <button id="nb6" onclick="setView(6)">MANIFOLD</button>
+    <button id="nb7" onclick="setView(7)">COMP</button>
+    <button id="nb8" onclick="setView(8)">WBT</button>
+    <button id="nb9" class="esd-btn" onclick="setView(9)">FGD/ESD</button>
+    <button id="nb10" onclick="setView(10)">LOAD</button>
+    <button id="nb11" onclick="setView(11)">📋 PRESETS</button>
+  </div>
+</div>
+
+<div id="view3d">
+  <div id="draftOverlay"></div>
+  <div class="hotspot-bar">
+    <div style="color:#aaa;margin-bottom:3px;">TAP ANY 3D TANK DOME, MAST RISER, OR MANIFOLD ON THE SHIP:</div>
+    <div class="nav-bar">
+      <button onclick="setView(1)">🔍 CT1</button>
+      <button onclick="setView(2)">🔍 CT2</button>
+      <button onclick="setView(3)">🔍 CT3</button>
+      <button onclick="setView(4)">🔍 CT4</button>
+      <button onclick="setView(5)">🔧 HDR/MASTS</button>
+      <button onclick="setView(6)">⛽ MANIFOLD/PUMPS</button>
+      <button onclick="setView(7)">⚙️ COMP RM</button>
+      <button onclick="setView(8)">🌊 BALLAST</button>
+      <button class="esd-btn" onclick="setView(9)">🛡️ FGD/ESD</button>
+      <button onclick="setView(11)">📋 PRESETS</button>
+    </div>
+  </div>
+</div>
+
+<div id="viewTank" class="view-screen">
+  <div class="row"><b id="tkTitle" style="font-size:12px;color:#fff;">CARGO TANK</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="tkSvg" viewBox="0 0 380 235"></svg>
+  <div id="tkControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewHeaders" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">VAPOUR/CONDENSATE HEADERS (PT/TT) & 4 VENT MAST RISERS</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="hdrSvg" viewBox="0 0 380 240"></svg>
+  <div id="hdrControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewPumps" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">SHORE MANIFOLD FLANGES, PT/TT, TRV & 8 DEEPWELL PUMPS</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="draftBanner" class="card info-tag"></div>
+  <svg id="pmpSvg" viewBox="0 0 380 215"></svg>
+  <div id="pmpControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewComp" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">COMPRESSOR ROOM & ELECTRIC MOTOR ROOM</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="compSvg" viewBox="0 0 380 195"></svg>
+  <div id="compControls" class="grid2 ctrl-panel" style="margin-top:6px;"></div>
+</div>
+
+<div id="viewBallast" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">BALLAST ROOM: L-SHAPED WBT 1-4 (P/S), FPK & APT</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="wbtSvg" viewBox="0 0 380 180"></svg>
+  <div id="wbtControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewSafety" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">FIXED GAS DETECTION (FGD) & ESD-1 SAFETY MATRIX</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="fgdControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewLoadicator" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">NAVAL ARCHITECTURE LOADICATOR: HYDROSTATICS & 20-STATION SF/BM</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="loadTables" class="info-tag"></div>
+  <div class="card"><b>20-STATION STILL WATER BENDING MOMENT (SWBM %)</b><canvas id="bmCurveCv" class="curve-cv" width="380" height="85"></canvas></div>
+  <div class="card"><b>20-STATION STILL WATER SHEAR FORCE (SWSF %)</b><canvas id="sfCurveCv" class="curve-cv" width="380" height="85"></canvas></div>
+</div>
+
+<div id="viewPresets" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">OPERATIONAL SCENARIO PRESETS (PRE-DD, POST-DD, CARGO & DRILLS)</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="presetList"></div>
+</div>
+
+<script src="/ui_3d.js"></script>
+<script src="/ui_mimics.js"></script>
+</body>
+</html>
