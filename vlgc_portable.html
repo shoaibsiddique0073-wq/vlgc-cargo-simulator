@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+  @font-face { font-family: 'Orbitron'; src: url('/assets/fonts/Orbitron.ttf') format('truetype'); }
+  @font-face { font-family: 'JetBrainsMono'; src: url('/assets/fonts/JetBrainsMono.ttf') format('truetype'); }
+
+  :root {
+    --bg-main: #030710; --bg-panel: rgba(2,10,22,0.95); --bg-card: #071224;
+    --fg-main: #00ffff; --fg-accent: #00ffaa; --border-col: #0088aa;
+  }
+  body.theme-dark {
+    --bg-main: #0c0e12; --bg-panel: rgba(18,21,28,0.96); --bg-card: #161a22;
+    --fg-main: #d8dee9; --fg-accent: #88c0d0; --border-col: #4c566a;
+  }
+  body.theme-term {
+    --bg-main: #020802; --bg-panel: rgba(4,16,4,0.96); --bg-card: #061806;
+    --fg-main: #33ff33; --fg-accent: #88ff88; --border-col: #22aa22;
+  }
+  /* Toggleable Screen Info & Controls Classes */
+  body.hide-info .info-tag, body.hide-info #draftOverlay { display: none !important; }
+  body.hide-ctrl .ctrl-panel, body.hide-ctrl .hotspot-bar { display: none !important; }
+
+  body { margin: 0; background: var(--bg-main); color: var(--fg-main); font-family: 'JetBrainsMono', monospace; overflow: hidden; font-size: 11px; user-select: none; }
+  b, .title-font { font-family: 'Orbitron', sans-serif; letter-spacing: 0.4px; }
+  #topbar { position: absolute; top: 0; left: 0; right: 0; background: var(--bg-panel); border-bottom: 1px solid var(--border-col); padding: 4px 6px; z-index: 20; display: flex; flex-direction: column; gap: 3px; }
+  .nav-bar { display: flex; flex-wrap: wrap; gap: 2px; }
+  .nav-bar button { flex: 1; min-width: 40px; background: var(--bg-card); color: var(--fg-main); border: 1px solid var(--border-col); padding: 4px 2px; font-family: 'Orbitron', monospace; font-size: 8px; font-weight: bold; border-radius: 3px; }
+  .nav-bar button.act { background: var(--fg-main); color: #000; border-color: #fff; }
+  .nav-bar button.esd-btn { background: #900; color: #fff; border-color: #f44; }
+  .view-screen { position: absolute; top: 84px; bottom: 0; left: 0; right: 0; display: none; overflow-y: auto; padding: 8px; box-sizing: border-box; background: var(--bg-main); }
+  #view3d { position: absolute; top: 84px; bottom: 0; left: 0; right: 0; }
+  #draftOverlay { position: absolute; top: 8px; left: 8px; background: var(--bg-panel); border: 1px solid var(--border-col); padding: 6px 10px; border-radius: 5px; pointer-events: none; z-index: 10; line-height: 1.45; }
+  .hotspot-bar { position: absolute; bottom: 10px; left: 8px; right: 8px; background: var(--bg-panel); border: 1px solid var(--border-col); padding: 7px; border-radius: 6px; z-index: 10; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border-col); border-radius: 5px; padding: 7px; margin-bottom: 6px; }
+  .row { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; gap: 4px; flex-wrap: wrap; }
+  input[type=range] { flex: 1; height: 14px; }
+  button.sm { background: #034; color: var(--fg-main); border: 1px solid var(--border-col); padding: 3px 5px; font-family: 'JetBrainsMono', monospace; font-size: 9.5px; border-radius: 3px; }
+  button.open { background: #062; color: #4f4; border-color: #4f4; font-weight: bold; }
+  button.shut { background: #511; color: #f66; border-color: #f66; }
+  button.hot { background: #730; color: #fa0; border-color: #fa0; font-weight: bold; }
+  svg { width: 100%; background: #02060d; border: 1px solid var(--border-col); border-radius: 4px; }
+  canvas.curve-cv { width: 100%; height: 85px; background: #02050a; border: 1px solid var(--border-col); border-radius: 4px; margin-top: 4px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="row">
+    <span id="hudTop"><b>VLGC CCR</b> | Initializing...</span>
+    <div>
+      <button id="btnInfo" class="sm open" onclick="toggleInfo()">📊 INFO</button>
+      <button id="btnCtrl" class="sm open" onclick="toggleCtrl()">🎛️ CTRL</button>
+      <button id="btnAud" class="sm open" onclick="toggleAudio()">🔊 SND</button>
+      <button class="sm" onclick="cycleTheme()">🎨</button>
+      <button class="sm" onclick="cmd('spd=0')">0x</button>
+      <button class="sm" onclick="cmd('spd=1')">1x</button>
+      <button class="sm" onclick="cmd('spd=10')">10x</button>
+      <button class="sm" onclick="cmd('spd=60')">60x</button>
+      <button class="sm" onclick="cmd('spd=300')">300x</button>
+      <button class="sm shut" onclick="cmd('esd=1','alarm_buzzer')">🚨 ESD</button>
+    </div>
+  </div>
+  <div class="nav-bar">
+    <button id="nb0" class="act" onclick="setView(0)">🚢 3D</button>
+    <button id="nb1" onclick="setView(1)">CT1</button>
+    <button id="nb2" onclick="setView(2)">CT2</button>
+    <button id="nb3" onclick="setView(3)">CT3</button>
+    <button id="nb4" onclick="setView(4)">CT4</button>
+    <button id="nb5" onclick="setView(5)">HDR/MAST</button>
+    <button id="nb6" onclick="setView(6)">MANIFOLD</button>
+    <button id="nb7" onclick="setView(7)">COMP</button>
+    <button id="nb8" onclick="setView(8)">WBT</button>
+    <button id="nb9" class="esd-btn" onclick="setView(9)">FGD/ESD</button>
+    <button id="nb10" onclick="setView(10)">LOAD</button>
+    <button id="nb11" onclick="setView(11)">📋 PRESETS</button>
+  </div>
+</div>
+
+<div id="view3d">
+  <div id="draftOverlay"></div>
+  <div class="hotspot-bar">
+    <div style="color:#aaa;margin-bottom:3px;">TAP ANY 3D TANK DOME, MAST RISER, OR MANIFOLD ON THE SHIP:</div>
+    <div class="nav-bar">
+      <button onclick="setView(1)">🔍 CT1</button>
+      <button onclick="setView(2)">🔍 CT2</button>
+      <button onclick="setView(3)">🔍 CT3</button>
+      <button onclick="setView(4)">🔍 CT4</button>
+      <button onclick="setView(5)">🔧 HDR/MASTS</button>
+      <button onclick="setView(6)">⛽ MANIFOLD/PUMPS</button>
+      <button onclick="setView(7)">⚙️ COMP RM</button>
+      <button onclick="setView(8)">🌊 BALLAST</button>
+      <button class="esd-btn" onclick="setView(9)">🛡️ FGD/ESD</button>
+      <button onclick="setView(11)">📋 PRESETS</button>
+    </div>
+  </div>
+</div>
+
+<div id="viewTank" class="view-screen">
+  <div class="row"><b id="tkTitle" style="font-size:12px;color:#fff;">CARGO TANK</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="tkSvg" viewBox="0 0 380 235"></svg>
+  <div id="tkControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewHeaders" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">VAPOUR/CONDENSATE HEADERS (PT/TT) & 4 VENT MAST RISERS</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="hdrSvg" viewBox="0 0 380 240"></svg>
+  <div id="hdrControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewPumps" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">SHORE MANIFOLD FLANGES, PT/TT, TRV & 8 DEEPWELL PUMPS</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="draftBanner" class="card info-tag"></div>
+  <svg id="pmpSvg" viewBox="0 0 380 215"></svg>
+  <div id="pmpControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewComp" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">COMPRESSOR ROOM & ELECTRIC MOTOR ROOM</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="compSvg" viewBox="0 0 380 195"></svg>
+  <div id="compControls" class="grid2 ctrl-panel" style="margin-top:6px;"></div>
+</div>
+
+<div id="viewBallast" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">BALLAST ROOM: L-SHAPED WBT 1-4 (P/S), FPK & APT</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <svg id="wbtSvg" viewBox="0 0 380 180"></svg>
+  <div id="wbtControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewSafety" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">FIXED GAS DETECTION (FGD) & ESD-1 SAFETY MATRIX</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="fgdControls" class="ctrl-panel"></div>
+</div>
+
+<div id="viewLoadicator" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">NAVAL ARCHITECTURE LOADICATOR: HYDROSTATICS & 20-STATION SF/BM</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="loadTables" class="info-tag"></div>
+  <div class="card"><b>20-STATION STILL WATER BENDING MOMENT (SWBM %)</b><canvas id="bmCurveCv" class="curve-cv" width="380" height="85"></canvas></div>
+  <div class="card"><b>20-STATION STILL WATER SHEAR FORCE (SWSF %)</b><canvas id="sfCurveCv" class="curve-cv" width="380" height="85"></canvas></div>
+</div>
+
+<div id="viewPresets" class="view-screen">
+  <div class="row"><b style="font-size:12px;color:#fff;">OPERATIONAL SCENARIO PRESETS (PRE-DD, POST-DD, CARGO & DRILLS)</b><button class="sm" onclick="setView(0)">⬅ 3D SHIP</button></div>
+  <div id="presetList"></div>
+</div>
+
+<script>
+// Automatic Serverless Physics Fallback for GitHub Pages & WhatsApp Sharing
+(function() {
+  const GRADES = [
+    {mw:44.097, tb:-42.1, A:3.92828, B:803.997, C:-26.11, r15:507.5, a:0.00162, tr:-36.8},
+    {mw:58.122, tb:-0.5,  A:3.93266, B:935.773, C:-34.36, r15:584.2, a:0.00108, tr:4.8},
+    {mw:17.031, tb:-33.3, A:4.48540, B:926.132, C:-32.98, r15:618.2, a:0.00148, tr:-28.2}
+  ];
+  const PRESETS = [
+    {n:"1. Pre-DD: Stripping & Puddle Heating", c:"PRE-DRYDOCK", g1:0, g2:0, p:1.2, ts:-39, tv:-35, tl:-41.5, pr:135, hc:98.5, ig:1.4, o2:0.1, prg:0, cm:2, vr:[0,0,1,0,0,1], mop:1, dwp:0, fv:0, wbt:65},
+    {n:"2. Pre-DD: Tank Warming-Up (+5°C Target)", c:"PRE-DRYDOCK", g1:0, g2:0, p:0.0, ts:-18, tv:12, tl:-15, pr:160, hc:98, ig:1.9, o2:0.1, prg:0, cm:2, vr:[0,1,1,0,1,1], mop:0, dwp:0, fv:0, wbt:65},
+    {n:"3. Pre-DD: Inerting (IGG/N2 Purging <2% HC)", c:"PRE-DRYDOCK", g1:0, g2:0, p:0.0, ts:18, tv:20, tl:18, pr:60, hc:14, ig:84.5, o2:1.5, prg:1, cm:0, vr:[0,0,0,0,0,0], mop:0, dwp:0, fv:0, wbt:60},
+    {n:"4. Pre-DD: Aerating (Gas-Free for Man Entry)", c:"PRE-DRYDOCK", g1:0, g2:0, p:0.0, ts:24, tv:24, tl:24, pr:15, hc:0.2, ig:82.8, o2:17, prg:2, cm:0, vr:[0,0,0,0,0,0], mop:0, dwp:0, fv:0, wbt:55},
+    {n:"5. Post-DD: Drying & Inerting (O2 < 2%)", c:"POST-DRYDOCK", g1:0, g2:0, p:0.0, ts:25, tv:25, tl:25, pr:45, hc:0, ig:91.5, o2:8.5, prg:1, cm:0, vr:[0,0,0,0,0,0], mop:0, dwp:0, fv:0, wbt:60},
+    {n:"6. Post-DD: Gassing-Up (Purging N2 w/ C3 Vapor)", c:"POST-DRYDOCK", g1:0, g2:0, p:0.0, ts:22, tv:15, tl:20, pr:85, hc:68, ig:31.5, o2:0.5, prg:3, cm:0, vr:[0,0,0,0,0,0], mop:0, dwp:0, fv:0, wbt:60},
+    {n:"7. Post-DD: Tank Cool-Down (Top/Bot Spray)", c:"POST-DRYDOCK", g1:0, g2:0, p:2.5, ts:8, tv:-12, tl:-41.2, pr:145, hc:98.8, ig:1.1, o2:0.1, prg:0, cm:1, vr:[1,1,0,1,1,0], mop:0, dwp:0, fv:0, wbt:60},
+    {n:"8. Ops: Full Homogeneous C3 Propane Loading", c:"CARGO OPS", g1:0, g2:0, p:35, ts:-40.5, tv:-40.8, tl:-41.5, pr:110, hc:99, ig:0.9, o2:0.1, prg:0, cm:1, vr:[1,0,0,1,0,0], mop:2, dwp:0, fv:1, wbt:55},
+    {n:"9. Ops: 2-Grade Segregated (Sys1: C3, Sys2: C4)", c:"CARGO OPS", g1:0, g2:1, p:68, ts:-40.5, tv:-40.8, tl:-41.5, pr:95, hc:99, ig:0.9, o2:0.1, prg:0, cm:1, vr:[0,0,1,0,0,1], mop:1, dwp:1, fv:0, wbt:25},
+    {n:"10. Ops: Full 8-Pump Discharging + Ballasting", c:"CARGO OPS", g1:0, g2:0, p:82, ts:-41, tv:-41, tl:-41.6, pr:90, hc:99, ig:0.9, o2:0.1, prg:0, cm:1, vr:[0,0,0,0,0,0], mop:1, dwp:1, fv:0, wbt:15},
+    {n:"11. Ops: Heated & Pressurized Discharge", c:"CARGO OPS", g1:0, g2:0, p:60, ts:-40.8, tv:-40.8, tl:-41.5, pr:105, hc:99, ig:0.9, o2:0.1, prg:0, cm:1, vr:[0,0,0,0,0,0], mop:1, dwp:1, fv:0, wbt:30},
+    {n:"12. Drill: Overpressure & Trapped Line Mast Venting", c:"EMERGENCY", g1:0, g2:0, p:85, ts:-34, tv:-33.5, tl:-35.8, pr:256, hc:99, ig:0.9, o2:0.1, prg:0, cm:0, vr:[0,0,0,0,0,0], mop:1, dwp:0, fv:0, wbt:20}
+  ];
+
+  const S = {
+    spd:1, time:0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
+    tpc:68.2, mctc:995, lcb:1.9, lcf:-2.6, lcg:1.5, kmt:16.9, kg:11.8, fsc:1.2, gm:3.9,
+    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, bp:[0,0], xo:[0,0,0],
+    esd:0, cause:"SYSTEM NORMAL", mdp:55, cvent:1, floop:1,
+    man:{op:[1,1], sc:[1,1], ev:[1,1], gv:[1,1], lpt:[4.0,4.0], ltt:[-41.2,-0.3],
+         vpt:[0.09,0.09], vtt:[-39,0.5], cpt:[0.1,0.1], ctt:[-41,0],
+         trv:[0,0], marvs:[0,0,0,0], mast:[0,0,0,0], sb:[4.0,4.0], q:[0,0], htr:0, bst:0, et:-41.5, eb:4.0},
+    ct:[0,1,2,3].map(i => ({
+      p:50, s:50, bhd:1, g:0, sys:i%2, fl:96.9, pr:95, rho:582, mt:6110, vsuc:1, cin:1, lact:0,
+      ts:-38.5, bs:-41.2, tv:-39.5, tl:-41.5, cr:0.0, hc:98.5, ig:1.4, o2:0.1, prg:0, fv:0,
+      vr:[0,0,0,0,0,0], dp:[0,25,0,0,0,0,0], ds:[0,25,0,0,0,0,0]
+    })),
+    comp:[[0,0],[0,0],[0,1],[0,1]],
+    fgd:[0,1,2,3,4,5].map(z => [0.0, z<4?0.8:20.9, 0, 0, 0]),
+    wbt:[0,1,2,3,4,5,6,7,8,9].map(() => [45.0, 0]),
+    presets: PRESETS, sf_c: Array(20).fill(0), bm_c: Array(20).fill(0)
+  };
+
+  function stepLocal(dtReal) {
+    const dt = dtReal * S.spd; S.time = Math.round(S.time + dt);
+    if (S.esd) {
+      S.comp.forEach(c => c[0]=0);
+      S.ct.forEach(t => { t.dp[0]=0; t.ds[0]=0; t.fv=0; });
+      S.man.ev = [0,0]; S.man.op = [0,0];
+    }
+    const flowSys = [0,0], hotSys = [false,false];
+    S.comp.forEach(c => { if (c[0]>0) { flowSys[c[1]] += 3.2; if (c[0]===2) hotSys[c[1]]=true; }});
+
+    let sumW = 18650, sumMx = 18650 * -8.45, sumMy = 0, sumMz = 18650 * 13.8, sumFsm = 0;
+    const lcgCt = [64.2, 22.8, -19.5, -61.0];
+    S.man.q = [0,0]; S.man.mast = [0,0,0,0];
+
+    S.ct.forEach((t, i) => {
+      const gr = GRADES[t.g];
+      t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
+      const rhoRef = gr.r15 * (1 - gr.a * (gr.tr - 15));
+      t.fl = +Math.min(98, 98 * (rhoRef / t.rho)).toFixed(1);
+
+      if (t.bhd && dt > 0) {
+        const d = (t.p - t.s) + S.heel * 0.4;
+        t.p = +(t.p - d*0.15).toFixed(1); t.s = +(t.s + d*0.15).toFixed(1);
+      }
+      const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && S.man.gv[t.sys];
+      [t.dp, t.ds].forEach((p, sd) => {
+        if (p[0]) {
+          const q = Math.round((p[1]/100) * 620);
+          p[2] = mOpen && S.man.op[t.sys]===1 ? q : 0;
+          p[3] = mOpen ? S.man.sb[t.sys] + 1.5 : 13.5;
+          p[4] = Math.round(45 + (q/600)*115);
+          if (dt > 0 && mOpen && S.man.op[t.sys]===1) {
+            if (sd===0) t.p = Math.max(0, +(t.p - (q/3600)*dt/105).toFixed(1));
+            else t.s = Math.max(0, +(t.s - (q/3600)*dt/105).toFixed(1));
+          }
+          S.man.q[t.sys] += p[2];
+        } else { p[2]=0; p[3]=0; p[4]=0; }
+      });
+      if (S.man.op[t.sys]===2 && mOpen && t.fv && dt > 0) {
+        t.p = Math.min(t.fl, +(t.p + 0.35*(dt/60)).toFixed(1));
+        t.s = Math.min(t.fl, +(t.s + 0.35*(dt/60)).toFixed(1));
+        S.man.q[t.sys] += 1200;
+      }
+
+      const nOpen = t.vr.reduce((a,b)=>a+b, 0);
+      t.lact = (t.vsuc && t.cin && nOpen > 0 && flowSys[t.sys] > 0) ? 1 : 0;
+      if (t.lact && dt > 0) {
+        const tSup = hotSys[t.sys] ? 68 : gr.tb - 1;
+        const rate = ((tSup - t.ts) * 0.12) * (dt / 3600);
+        t.ts = +(t.ts + rate).toFixed(2); t.bs = +(t.bs + rate*0.85).toFixed(2);
+        t.tv = +(t.tv + rate*1.1).toFixed(2); t.cr = +((rate / (dt/3600))).toFixed(2);
+      } else { t.cr = 0.0; }
+
+      const pEq = Math.max(10, (Math.pow(10, gr.A - gr.B / (t.tl + 273.15 + gr.C)) - 1.013) * 1000);
+      t.pr = Math.round(t.pr * 0.8 + pEq * 0.2);
+      if (t.pr >= 250) { S.man.marvs[i] = 1; S.man.mast[i] = Math.round((t.pr-245)*80); }
+      else S.man.marvs[i] = 0;
+
+      t.mt = Math.round(((t.p + t.s)/100) * 10500 * (t.rho/1000));
+      sumW += t.mt; sumMx += t.mt * lcgCt[i];
+      sumMy += ((t.s - t.p)/100) * 10500 * (t.rho/1000) * 7.5;
+      sumMz += t.mt * (1.8 + ((t.p+t.s)/200)*10.2);
+      if (t.p > 2 && t.p < 95) sumFsm += 1100;
+    });
+
+    [0,1].forEach(s => {
+      const mOpen = S.man.sc[s] && S.man.ev[s] && S.man.gv[s];
+      if (!mOpen && dt > 0) S.man.lpt[s] = +(S.man.lpt[s] + 0.08*(dt/60)).toFixed(1);
+      else S.man.lpt[s] = S.man.sb[s];
+      if (S.man.lpt[s] >= 10.0) { S.man.trv[s]=1; S.man.mast[s] += 450; S.man.lpt[s]=10.2; }
+      else S.man.trv[s]=0;
+    });
+
+    S.wbt.forEach((w, j) => {
+      w[1] = w[0] <= 45 ? 0 : (w[0] <= 70 ? 1 : 2);
+      const wm = (w[0]/100) * 2500 * 1.025;
+      sumW += wm; sumMz += wm * (w[1]===0 ? 2.0 : (w[1]===1 ? 7.5 : 14.5));
+      sumFsm += (w[1]===1 ? 85 : 550);
+    });
+
+    S.fgd.forEach((z, idx) => {
+      if (z[3]) z[0] = Math.min(100, +(z[0] + 5).toFixed(1));
+      else z[0] = Math.max(0, +(z[0] - 5).toFixed(1));
+      z[4] = z[0] >= 30 ? 2 : (z[0] >= 10 ? 1 : 0);
+      if (z[4] === 2 && idx >= 4 && !S.esd) { S.esd = 1; S.cause = "FGD 30% LEL TRIP"; }
+    });
+
+    S.disp = Math.round(sumW);
+    S.tm = +(4.0 + (sumW - 23400) / 6800).toFixed(2);
+    S.kmt = +(22.5 - S.tm * 0.55).toFixed(2);
+    S.kg = +(sumMz / sumW).toFixed(2);
+    S.fsc = +(sumFsm / sumW).toFixed(2);
+    S.gm = +Math.max(0.3, S.kmt - S.kg - S.fsc).toFixed(2);
+    S.lcg = +(sumMx / sumW).toFixed(2);
+    S.trim = +((sumW * (S.lcg - S.lcb)) / (S.mctc * 100)).toFixed(2);
+    S.tf = +(S.tm + S.trim * 0.48).toFixed(2);
+    S.ta = +(S.tm - S.trim * 0.52).toFixed(2);
+    S.heel = +(Math.atan2(sumMy / sumW, S.gm) * (180/Math.PI)).toFixed(2);
+
+    for (let s = 0; s < 20; s++) {
+      const x = (s - 9.5) / 9.5;
+      S.bm_c[s] = +(Math.cos(x * Math.PI * 0.8) * (45 + (S.ct[0].p - S.ct[1].p)*0.6)).toFixed(1);
+      S.sf_c[s] = +(Math.sin(x * Math.PI) * 38).toFixed(1);
+    }
+    S.bm = +Math.max(...S.bm_c.map(Math.abs)).toFixed(1);
+    S.sf = +Math.max(...S.sf_c.map(Math.abs)).toFixed(1);
+    S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
+  }
+
+  function parseCmd(url) {
+    const q = url.split('?')[1]; if (!q) return;
+    const p = new URLSearchParams(q);
+    if (p.has('spd')) S.spd = +p.get('spd');
+    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; }
+    if (p.has('bhd')) { const i = +p.get('bhd'); S.ct[i].bhd = 1 - S.ct[i].bhd; }
+    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; }
+    if (p.has('sys')) { const i = +p.get('sys'); S.ct[i].sys = 1 - S.ct[i].sys; }
+    if (p.has('vsuc')) { const i = +p.get('vsuc'); S.ct[i].vsuc = 1 - S.ct[i].vsuc; }
+    if (p.has('cin')) { const i = +p.get('cin'); S.ct[i].cin = 1 - S.ct[i].cin; }
+    if (p.has('fvlv')) { const i = +p.get('fvlv'); S.ct[i].fv = 1 - S.ct[i].fv; }
+    if (p.has('vret')) { const i = +p.get('vret'), idx = (+p.get('side'))*3 + (+p.get('br')); S.ct[i].vr[idx] = 1 - S.ct[i].vr[idx]; }
+    if (p.has('pstart')) { const i = +p.get('pstart'), s = +p.get('side'); const arr = s===0 ? S.ct[i].dp : S.ct[i].ds; arr[0] = 1 - arr[0]; }
+    if (p.has('pthr')) { const i = +p.get('pthr'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].dp[1]=v; else S.ct[i].ds[1]=v; }
+    if (p.has('sconn')) { const s = +p.get('sconn'); S.man.sc[s] = 1 - S.man.sc[s]; }
+    if (p.has('mesd')) { const s = +p.get('mesd'); S.man.ev[s] = 1 - S.man.ev[s]; }
+    if (p.has('mgate')) { const s = +p.get('mgate'); S.man.gv[s] = 1 - S.man.gv[s]; }
+    if (p.has('mop')) { S.man.op[+p.get('mop')] = +p.get('m'); }
+    if (p.has('htr')) S.man.htr = 1 - S.man.htr;
+    if (p.has('bst')) S.man.bst = 1 - S.man.bst;
+    if (p.has('comp')) S.comp[+p.get('comp')][0] = +p.get('m');
+    if (p.has('csys')) { const c = +p.get('csys'); S.comp[c][1] = 1 - S.comp[c][1]; }
+    if (p.has('xo')) { const x = +p.get('xo'); S.xo[x] = 1 - S.xo[x]; }
+    if (p.has('wbt')) S.wbt[+p.get('wbt')][0] = +p.get('v');
+    if (p.has('wtgt')) S.wtgt = +p.get('wtgt');
+    if (p.has('leak')) { const z = +p.get('leak'); S.fgd[z][3] = 1 - S.fgd[z][3]; }
+    if (p.has('esd')) {
+      const e = +p.get('esd');
+      if (e===1) { S.esd=1; S.cause="MANUAL ESD-1 PUSHBUTTON"; }
+      else if (e===0) { S.esd=0; S.cause="ESD RESET - NORMAL"; S.fgd.forEach(z=>{z[0]=0;z[3]=0;z[4]=0;}); }
+    }
+    if (p.has('preset')) {
+      const idx = +p.get('preset');
+      if (idx === -1) {
+        S.presets.push({...PRESETS[0], n:"Custom Snapshot #" + (S.presets.length - 11), c:"CUSTOM", p:S.ct[0].p});
+      } else if (S.presets[idx]) {
+        const pr = S.presets[idx]; S.esd = 0;
+        S.comp.forEach(c => c[0] = pr.cm); S.man.op = [pr.mop, pr.mop];
+        S.ct.forEach(t => {
+          t.g = t.sys===0 ? pr.g1 : pr.g2; t.p = pr.p; t.s = pr.p;
+          t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr;
+          t.hc = pr.hc; t.ig = pr.ig; t.o2 = pr.o2; t.prg = pr.prg;
+          t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv;
+        });
+        S.wbt.forEach(w => w[0] = pr.wbt);
+      }
+    }
+  }
+
+  // Intercept fetch('/state'): Uses native C++ server if running, or falls back to standalone_sim.js!
+  const origFetch = window.fetch;
+  let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
+  window.fetch = async function(url, opts) {
+    if (typeof url === 'string' && url.includes('/state')) {
+      if (!serverlessMode) {
+        try {
+          const r = await origFetch(url, opts);
+          if (r.ok) return r;
+        } catch(e) { serverlessMode = true; }
+      }
+      parseCmd(url);
+      stepLocal(0.3);
+      return { ok: true, json: async () => S };
+    }
+    return origFetch(url, opts);
+  };
+})();
+
+</script>
+<script>
+let curView = 0, activeTank = 0, lastData = null, themeIdx = 0;
+let showInfo = true, showCtrl = true, audioEnabled = true, audioCtx = null;
+const themes = ['', 'theme-dark', 'theme-term'];
+
+// Hybrid Web Audio API Synthesizer + Local .ogg Player (Guarantees Sound on Android!)
+function playSfx(name) {
+  if (!audioEnabled) return;
+  try { new Audio('/assets/audio/' + name + '.ogg').play().catch(()=>{}); } catch(e){}
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+
+    if (name === 'click') {
+      osc.type = 'sine'; osc.frequency.setValueAtTime(950, now);
+      gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+      osc.start(now); osc.stop(now + 0.045);
+    } else if (name === 'valve_toggle') {
+      osc.type = 'triangle'; osc.frequency.setValueAtTime(320, now); osc.frequency.exponentialRampToValueAtTime(140, now + 0.11);
+      gain.gain.setValueAtTime(0.18, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      osc.start(now); osc.stop(now + 0.11);
+    } else if (name === 'pump_start') {
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(90, now); osc.frequency.exponentialRampToValueAtTime(260, now + 0.28);
+      gain.gain.setValueAtTime(0.16, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.start(now); osc.stop(now + 0.28);
+    } else if (name === 'alarm_buzzer' || name === 'alarm') {
+      osc.type = 'square'; osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(620, now + 0.15);
+      gain.gain.setValueAtTime(0.24, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.start(now); osc.stop(now + 0.35);
+    } else if (name === 'success') {
+      osc.type = 'sine'; osc.frequency.setValueAtTime(523, now); osc.frequency.setValueAtTime(784, now + 0.1);
+      gain.gain.setValueAtTime(0.18, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.start(now); osc.stop(now + 0.25);
+    }
+  } catch(e){}
+}
+
+function toggleInfo() {
+  showInfo = !showInfo;
+  document.body.classList.toggle('hide-info', !showInfo);
+  document.getElementById('btnInfo').className = 'sm ' + (showInfo ? 'open' : 'shut');
+  playSfx('click');
+}
+
+function toggleCtrl() {
+  showCtrl = !showCtrl;
+  document.body.classList.toggle('hide-ctrl', !showCtrl);
+  document.getElementById('btnCtrl').className = 'sm ' + (showCtrl ? 'open' : 'shut');
+  playSfx('click');
+}
+
+function toggleAudio() {
+  audioEnabled = !audioEnabled;
+  document.getElementById('btnAud').className = 'sm ' + (audioEnabled ? 'open' : 'shut');
+  if (audioEnabled) playSfx('success');
+}
+
+function cycleTheme() {
+  themeIdx = (themeIdx + 1) % 3;
+  document.body.classList.remove('theme-dark', 'theme-term');
+  if (themes[themeIdx]) document.body.classList.add(themes[themeIdx]);
+  playSfx('click');
+}
+
+function setView(v) {
+  playSfx('click');
+  curView = v;
+  for (let i = 0; i <= 11; i++) {
+    const b = document.getElementById('nb'+i);
+    if (b) b.className = (i === v) ? 'act' : (i === 9 ? 'esd-btn' : '');
+  }
+  document.getElementById('view3d').style.display = (v === 0) ? 'block' : 'none';
+  document.getElementById('viewTank').style.display = (v >= 1 && v <= 4) ? 'block' : 'none';
+  document.getElementById('viewHeaders').style.display = (v === 5) ? 'block' : 'none';
+  document.getElementById('viewPumps').style.display = (v === 6) ? 'block' : 'none';
+  document.getElementById('viewComp').style.display = (v === 7) ? 'block' : 'none';
+  document.getElementById('viewBallast').style.display = (v === 8) ? 'block' : 'none';
+  document.getElementById('viewSafety').style.display = (v === 9) ? 'block' : 'none';
+  document.getElementById('viewLoadicator').style.display = (v === 10) ? 'block' : 'none';
+  document.getElementById('viewPresets').style.display = (v === 11) ? 'block' : 'none';
+  if (v >= 1 && v <= 4) activeTank = v - 1;
+  if (lastData && window.renderActiveView) window.renderActiveView(lastData);
+}
+
+// --- THREE.JS 3D SHIP-SHAPED VLGC + 4 VENT MAST RISERS + MANIFOLD FLANGES ---
+const v3d = document.getElementById('view3d');
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(45, innerWidth/(innerHeight-84), 1, 1800);
+cam.position.set(175, 95, 200);
+const ren = new THREE.WebGLRenderer({antialias: true});
+ren.setSize(innerWidth, innerHeight - 84);
+v3d.appendChild(ren.domElement);
+new THREE.OrbitControls(cam, ren.domElement);
+
+const shipGroup = new THREE.Group();
+scene.add(shipGroup);
+const clickableMeshes = [], mastPlumes3D = [];
+let manFlangeMat = null;
+
+function buildShipHull() {
+  const g = new THREE.Group();
+  const deckShape = new THREE.Shape();
+  deckShape.moveTo(-111, -11); deckShape.lineTo(-92, -18.3); deckShape.lineTo(62, -18.3);
+  deckShape.quadraticCurveTo(95, -15, 114, 0);
+  deckShape.quadraticCurveTo(95, 15, 62, 18.3);
+  deckShape.lineTo(-92, 18.3); deckShape.lineTo(-111, 11); deckShape.closePath();
+
+  const hullExtrude = new THREE.ExtrudeGeometry(deckShape, {depth: 22.2, bevelEnabled: false});
+  hullExtrude.rotateX(Math.PI / 2); hullExtrude.translate(0, 22.2, 0);
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(hullExtrude), new THREE.LineBasicMaterial({color: 0x0088bb})));
+  g.add(new THREE.Mesh(hullExtrude, new THREE.MeshBasicMaterial({color: 0x06182c, transparent: true, opacity: 0.25})));
+
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(4.2, 12, 10), new THREE.MeshBasicMaterial({color: 0x0088bb, wireframe: true}));
+  bulb.scale.set(2.4, 0.9, 0.8); bulb.position.set(112, 3.8, 0); g.add(bulb);
+
+  const trunk = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(168, 2.2, 26)), new THREE.LineBasicMaterial({color: 0x00aacc}));
+  trunk.position.set(2, 23.3, 0); g.add(trunk);
+
+  const accom = new THREE.Mesh(new THREE.BoxGeometry(18, 14, 24), new THREE.MeshBasicMaterial({color: 0x113355, transparent: true, opacity: 0.75}));
+  accom.position.set(-94, 29.2, 0); g.add(accom);
+
+  const bridge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(6, 3.5, 36)), new THREE.LineBasicMaterial({color: 0x00ffff}));
+  bridge.position.set(-88, 38.0, 0); g.add(bridge);
+
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3.5, 10, 12), new THREE.MeshBasicMaterial({color: 0xff6600, wireframe: true}));
+  funnel.position.set(-99, 41.0, 0); g.add(funnel);
+
+  const compMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 5.5, 16), new THREE.MeshBasicMaterial({color: 0xffaa00, wireframe: true}));
+  compMesh.position.set(2, 27.0, 0); compMesh.userData = {targetView: 7};
+  clickableMeshes.push(compMesh); g.add(compMesh);
+
+  manFlangeMat = new THREE.MeshBasicMaterial({color: 0x00ff66, wireframe: true});
+  const manMesh = new THREE.Mesh(new THREE.BoxGeometry(8, 3.5, 38.5), manFlangeMat);
+  manMesh.position.set(-8, 24.5, 0); manMesh.userData = {targetView: 6};
+  clickableMeshes.push(manMesh); g.add(manMesh);
+
+  const pipeConfigs = [
+    {z: -3.2, col: 0x00ffaa}, {z: -2.2, col: 0x00aaee},
+    {z:  0.0, col: 0xff4444}, {z:  1.0, col: 0xffaa44},
+    {z:  2.5, col: 0x00ffff}, {z:  3.3, col: 0x4488ff}
+  ];
+  pipeConfigs.forEach(p => {
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 152, 8), new THREE.MeshBasicMaterial({color: p.col}));
+    cyl.rotation.z = Math.PI / 2; cyl.position.set(2, 25.0, p.z); g.add(cyl);
+  });
+  return g;
+}
+shipGroup.add(buildShipHull());
+
+function makePrismaticHalf(len, halfW, h, isStbd) {
+  const s = new THREE.Shape();
+  if (isStbd) {
+    s.moveTo(0.15, 0); s.lineTo(halfW*0.76, 0); s.lineTo(halfW, h*0.18);
+    s.lineTo(halfW, h*0.72); s.lineTo(halfW*0.64, h); s.lineTo(0.15, h);
+  } else {
+    s.moveTo(-0.15, 0); s.lineTo(-0.15, h); s.lineTo(-halfW*0.64, h);
+    s.lineTo(-halfW, h*0.72); s.lineTo(-halfW, h*0.18); s.lineTo(-halfW*0.76, 0);
+  }
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, {depth: len, bevelEnabled: false});
+  g.rotateY(Math.PI/2); g.translate(-len/2, 0, 0);
+  return g;
+}
+
+const ctMeshes = [[], [], [], []], pumpHeads3D = [[], [], [], []];
+const xPos = [64.2, 22.8, -19.5, -61.0], halfWidths = [14.2, 16.4, 16.4, 15.8];
+const gradeColors = [0x00ffaa, 0x00bbff, 0xcc66ff];
+
+for (let i = 0; i < 4; i++) {
+  for (let side = 0; side < 2; side++) {
+    const zSign = (side === 0) ? -1 : 1;
+    const frameGeo = makePrismaticHalf(36, halfWidths[i], 18.8, side === 1);
+    const wire = new THREE.LineSegments(new THREE.EdgesGeometry(frameGeo), new THREE.LineBasicMaterial({color: 0x2266cc}));
+    wire.position.set(xPos[i], 1.6, 0); shipGroup.add(wire);
+
+    const liqGeo = makePrismaticHalf(35.2, halfWidths[i]*0.98, 18.5, side === 1);
+    const liqMesh = new THREE.Mesh(liqGeo, new THREE.MeshBasicMaterial({color: 0x00ffaa, transparent: true, opacity: 0.68}));
+    liqMesh.position.set(xPos[i], 1.7, 0); liqMesh.userData = {targetView: i + 1};
+    clickableMeshes.push(liqMesh); shipGroup.add(liqMesh); ctMeshes[i].push(liqMesh);
+
+    const dome = new THREE.Mesh(new THREE.BoxGeometry(6.5, 2.4, 4.5), new THREE.MeshBasicMaterial({color: 0x114477, wireframe: true}));
+    dome.position.set(xPos[i], 25.2, zSign * 4.2); dome.userData = {targetView: i + 1};
+    clickableMeshes.push(dome); shipGroup.add(dome);
+
+    const pMat = new THREE.MeshBasicMaterial({color: 0x777777});
+    const pMotor = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 2.6, 10), pMat);
+    pMotor.position.set(xPos[i] - 1.5, 27.2, zSign * 4.2); pMotor.userData = {targetView: i + 1};
+    clickableMeshes.push(pMotor); shipGroup.add(pMotor); pumpHeads3D[i].push(pMat);
+  }
+
+  // No. 1 to No. 4 Vent Mast Risers on Deck + Gas Venting Plume Cone
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.7, 13.5, 8), new THREE.MeshBasicMaterial({color: 0xdddddd}));
+  mast.position.set(xPos[i] + 5.5, 31.0, 0); mast.userData = {targetView: 5};
+  clickableMeshes.push(mast); shipGroup.add(mast);
+
+  const plume = new THREE.Mesh(new THREE.ConeGeometry(2.8, 8.0, 10), new THREE.MeshBasicMaterial({color: 0xff5500, wireframe: true}));
+  plume.position.set(xPos[i] + 5.5, 41.5, 0); plume.rotation.x = Math.PI; plume.visible = false;
+  shipGroup.add(plume); mastPlumes3D.push(plume);
+}
+
+const seaUniforms = { uTime: { value: 0.0 } };
+const seaMat = new THREE.ShaderMaterial({
+  uniforms: seaUniforms, transparent: true, side: THREE.DoubleSide,
+  vertexShader: `
+    uniform float uTime; varying float vElev;
+    void main() {
+      vec3 pos = position;
+      float w = sin(pos.x * 0.04 + uTime * 1.6) * 0.45 + cos(pos.y * 0.05 + uTime * 1.2) * 0.35;
+      pos.z += w; vElev = w;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    }`,
+  fragmentShader: `
+    varying float vElev;
+    void main() {
+      vec3 deep = vec3(0.0, 0.16, 0.38), crest = vec3(0.0, 0.55, 0.85);
+      gl_FragColor = vec4(mix(deep, crest, clamp((vElev + 0.8) * 0.65, 0.0, 1.0)), 0.48);
+    }`
+});
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(650, 650, 64, 64), seaMat);
+sea.rotation.x = Math.PI / 2; scene.add(sea);
+
+const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+let downPos = {x: 0, y: 0};
+ren.domElement.addEventListener('pointerdown', e => { downPos = {x: e.clientX, y: e.clientY}; });
+ren.domElement.addEventListener('pointerup', e => {
+  if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 8) return;
+  const rect = ren.domElement.getBoundingClientRect();
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, cam);
+  const hits = raycaster.intersectObjects(clickableMeshes);
+  if (hits.length > 0 && hits[0].object.userData.targetView) setView(hits[0].object.userData.targetView);
+});
+
+function update3DShip(d) {
+  shipGroup.position.y = -d.tm;
+  shipGroup.rotation.z = -Math.atan2(d.trim, 222);
+  shipGroup.rotation.x = d.heel * Math.PI / 180.0;
+
+  // Manifold 3D Flange Color: Green when Connected & ESD+Gate Open, Red when Isolated/Disconnected
+  const m1Open = d.man.sc[0] && d.man.ev[0] && d.man.gv[0];
+  if (manFlangeMat) manFlangeMat.color.setHex(m1Open ? 0x00ff66 : 0xff3333);
+
+  d.ct.forEach((t, i) => {
+    ctMeshes[i][0].scale.y = Math.max(0.01, t.p / 100.0);
+    ctMeshes[i][1].scale.y = Math.max(0.01, t.s / 100.0);
+    ctMeshes[i][0].material.color.setHex(gradeColors[t.g]);
+    ctMeshes[i][1].material.color.setHex(gradeColors[t.g]);
+    pumpHeads3D[i][0].color.setHex(t.dp[0] ? 0x00ff44 : (t.dp[6] > 0 ? 0xff2222 : 0x777777));
+    pumpHeads3D[i][1].color.setHex(t.ds[0] ? 0x00ff44 : (t.ds[6] > 0 ? 0xff2222 : 0x777777));
+    if (mastPlumes3D[i]) mastPlumes3D[i].visible = (d.man.mast[i] > 1.0);
+  });
+
+  const heelStr = d.heel < -0.05 ? `${Math.abs(d.heel).toFixed(1)}° PORT` : (d.heel > 0.05 ? `${d.heel.toFixed(1)}° STBD` : '0.0° EVEN');
+  document.getElementById('draftOverlay').innerHTML =
+    `<b style="color:#fff">HULL DRAFTS & MANIFOLD</b><br>` +
+    `FWD (Tf): <b>${d.tf}m</b> | MID (Tm): <b>${d.tm}m</b> | AFT (Ta): <b>${d.ta}m</b><br>` +
+    `TRIM: <b>${d.trim>0?'+':''}${d.trim}m</b> | LIST: <b>${heelStr}</b> | GM0: <b>${d.gm}m</b><br>` +
+    `MANIFOLD: <b style="color:${m1Open?'#0f0':'#f55'}">${m1Open?'CONNECTED & OPEN':'ISOLATED/SHUT'}</b><br>` +
+    `LIQ LINE PT: <b>${d.man.lpt[0]} bar</b> | TT: <b>${d.man.ltt[0]}°C</b>`;
+}
+
+function anim(t) {
+  requestAnimationFrame(anim);
+  seaUniforms.uTime.value = t * 0.001;
+  if (curView === 0) ren.render(scene, cam);
+}
+requestAnimationFrame(anim);
+
+</script>
+<script>
+const tripNames = ['OK', 'TRIP: DRY-RUN (<35A)', 'TRIP: OVERLOAD (>185A)', 'TRIP: NPSH CAVITATION'];
+const gShort = ['C3 PROPANE', 'C4 BUTANE', 'NH3 AMMONIA'];
+
+// --- VIEW 1-4: INSIDE CARGO TANK MIMIC (WITH MARVS -> MAST RISER) ---
+function renderTankView(d) {
+  const i = activeTank, t = d.ct[i], dp = t.dp, ds = t.ds, vr = t.vr;
+  const marvsLift = d.man.marvs[i];
+  document.getElementById('tkTitle').innerHTML =
+    `CT${i+1} [${gShort[t.g]}] | Mass:<b>${t.mt}t</b> | Dome:<span style="color:${t.pr>220?'#f44':'#0f0'}">${t.pr} mbarg</span> ${marvsLift?'🚨MARVS->MAST':''} | MaxFL:${t.fl}%`;
+
+  const pH = (t.p / 100) * 130, sH = (t.s / 100) * 130;
+  const pCol = dp[0] ? (dp[5] ? '#ff0' : '#0f0') : (dp[6]>0 ? '#f33' : '#666');
+  const sCol = ds[0] ? (ds[5] ? '#ff0' : '#0f0') : (ds[6]>0 ? '#f33' : '#666');
+  const flowCol = t.lact ? '#0ff' : '#444';
+
+  document.getElementById('tkSvg').innerHTML = `
+    <line x1="80" y1="2" x2="80" y2="52" stroke="${t.vsuc?'#f66':'#444'}" stroke-width="3" stroke-dasharray="4,2"/>
+    <rect x="48" y="5" width="64" height="15" rx="2" fill="${t.vsuc?'#711':'#333'}" stroke="#f88" onclick="cmd('vsuc=${i}','valve_toggle')"/>
+    <text x="80" y="15" fill="#fff" font-size="7.5" text-anchor="middle" onclick="cmd('vsuc=${i}','valve_toggle')">VAP SUC:${t.vsuc?'OPEN':'SHUT'}</text>
+
+    <!-- Tank MARVS Relief Valve -> Vent Mast Riser #${i+1} -->
+    <line x1="175" y1="2" x2="175" y2="52" stroke="${marvsLift?'#f33':'#555'}" stroke-width="3"/>
+    <rect x="138" y="5" width="74" height="15" rx="2" fill="${marvsLift?'#a00':'#222'}" stroke="#fa0"/>
+    <text x="175" y="15" fill="#fff" font-size="7" text-anchor="middle">MARVS->MAST#${i+1}: ${marvsLift?'LIFTED!':'250mbar'}</text>
+
+    <line x1="275" y1="2" x2="275" y2="24" stroke="${t.cin?'#0ff':'#444'}" stroke-width="3"/>
+    <rect x="240" y="5" width="70" height="15" rx="2" fill="${t.cin?'#066':'#333'}" stroke="#0ff" onclick="cmd('cin=${i}','valve_toggle')"/>
+    <text x="275" y="15" fill="#fff" font-size="7.5" text-anchor="middle" onclick="cmd('cin=${i}','valve_toggle')">COND IN:${t.cin?'OPEN':'SHUT'}</text>
+
+    <line x1="58" y1="24" x2="322" y2="24" stroke="${flowCol}" stroke-width="2"/>
+    <polygon points="75,52 188,52 188,202 65,202 45,178 45,82" fill="#06101e" stroke="#28f" stroke-width="2"/>
+    <polygon points="192,52 305,52 335,82 335,178 315,202 192,202" fill="#06101e" stroke="#28f" stroke-width="2"/>
+    <rect x="48" y="${201-pH}" width="139" height="${pH}" fill="rgba(0,255,170,0.42)"/>
+    <rect x="193" y="${201-sH}" width="139" height="${sH}" fill="rgba(0,210,255,0.42)"/>
+
+    <line x1="190" y1="52" x2="190" y2="180" stroke="#aaa" stroke-width="3"/>
+    <rect x="174" y="181" width="32" height="16" rx="3" fill="${t.bhd?'#082':'#811'}" stroke="#fff" onclick="cmd('bhd=${i}','valve_toggle')"/>
+    <text x="190" y="192" fill="#fff" font-size="8" text-anchor="middle" onclick="cmd('bhd=${i}','valve_toggle')">${t.bhd?'OPEN':'SHUT'}</text>
+
+    <line x1="150" y1="32" x2="150" y2="196" stroke="${pCol}" stroke-width="4"/>
+    <circle cx="150" cy="196" r="7" fill="${pCol}" stroke="#fff" onclick="cmd('pstart=${i}&side=0','pump_start')"/>
+    <line x1="230" y1="32" x2="230" y2="196" stroke="${sCol}" stroke-width="4"/>
+    <circle cx="230" cy="196" r="7" fill="${sCol}" stroke="#fff" onclick="cmd('pstart=${i}&side=1','pump_start')"/>
+
+    <line x1="115" y1="24" x2="115" y2="68" stroke="${vr[0]?flowCol:'#444'}" stroke-width="2"/>
+    <line x1="85" y1="24" x2="85" y2="140" stroke="${vr[1]?flowCol:'#444'}" stroke-width="2"/>
+    <line x1="58" y1="24" x2="58" y2="195" stroke="${vr[2]?(t.lact?'#fa0':'#650'):'#444'}" stroke-width="2"/>
+    <line x1="265" y1="24" x2="265" y2="68" stroke="${vr[3]?flowCol:'#444'}" stroke-width="2"/>
+    <line x1="295" y1="24" x2="295" y2="140" stroke="${vr[4]?flowCol:'#444'}" stroke-width="2"/>
+    <line x1="322" y1="24" x2="322" y2="195" stroke="${vr[5]?(t.lact?'#fa0':'#650'):'#444'}" stroke-width="2"/>
+
+    <g class="info-tag">
+      <text x="190" y="45" fill="${t.lact?'#0f0':'#fa0'}" font-size="8" font-weight="bold" text-anchor="middle">
+        ${t.lact ? '⚡ CONDENSATE FLOW ACTIVE (950t STEEL: '+t.cr+'°C/hr)' : '⚠️ NO FLOW: ALIGN VAP SUC + COMP + COND IN + SPRAY/SPARGE'}
+      </text>
+      <text x="115" y="108" fill="#ff0" font-size="8.5" text-anchor="middle">TT-TOP: ${t.ts}°C</text>
+      <text x="115" y="122" fill="#fff" font-size="8.5" text-anchor="middle">TT-VAP: ${t.tv}°C</text>
+      <text x="265" y="108" fill="#0f8" font-size="8.5" text-anchor="middle">HC:${t.hc}% IG:${t.ig}% O2:${t.o2}%</text>
+      <text x="115" y="162" fill="#0ff" font-size="10" font-weight="bold" text-anchor="middle">PORT: ${t.p}%</text>
+      <text x="265" y="162" fill="#0ff" font-size="10" font-weight="bold" text-anchor="middle">STBD: ${t.s}%</text>
+      <text x="190" y="222" fill="#fa0" font-size="8.5" text-anchor="middle">TT-BOT: ${t.bs}°C | TT-LIQ: ${t.tl}°C | P:${tripNames[dp[6]]}</text>
+    </g>
+  `;
+
+  document.getElementById('tkControls').innerHTML = `
+    <div class="card">
+      <div class="row">
+        <b>GRADE IN CT${i+1}:</b>
+        <button class="sm ${t.g===0?'open':''}" onclick="cmd('grade=${i}&g=0')">C3 PROPANE</button>
+        <button class="sm ${t.g===1?'open':''}" onclick="cmd('grade=${i}&g=1')">C4 BUTANE</button>
+        <button class="sm ${t.g===2?'open':''}" onclick="cmd('grade=${i}&g=2')">NH3 AMMONIA</button>
+        <button class="sm" onclick="cmd('sys=${i}')">SYS ${t.sys+1}</button>
+      </div>
+      <div class="row">
+        <b>DOME LINEUP:</b>
+        <button class="sm ${t.vsuc?'open':'shut'}" onclick="cmd('vsuc=${i}')">VAP SUC:${t.vsuc?'OPEN':'SHUT'}</button>
+        <button class="sm ${t.cin?'open':'shut'}" onclick="cmd('cin=${i}')">COND IN:${t.cin?'OPEN':'SHUT'}</button>
+        <button class="sm ${t.fv?'open':'shut'}" onclick="cmd('fvlv=${i}')">LIQ FILL:${t.fv?'OPEN':'SHUT'}</button>
+      </div>
+      <div class="row"><b>PORT RETURN:</b>
+        <button class="sm ${vr[0]?'open':'shut'}" onclick="cmd('vret=${i}&side=0&br=0')">P-TOP SPRAY</button>
+        <button class="sm ${vr[1]?'open':'shut'}" onclick="cmd('vret=${i}&side=0&br=1')">P-BOT SPRAY</button>
+        <button class="sm ${vr[2]?'open':'shut'}" onclick="cmd('vret=${i}&side=0&br=2')">P-SPARGE</button>
+      </div>
+      <div class="row"><b>STBD RETURN:</b>
+        <button class="sm ${vr[3]?'open':'shut'}" onclick="cmd('vret=${i}&side=1&br=0')">S-TOP SPRAY</button>
+        <button class="sm ${vr[4]?'open':'shut'}" onclick="cmd('vret=${i}&side=1&br=1')">S-BOT SPRAY</button>
+        <button class="sm ${vr[5]?'open':'shut'}" onclick="cmd('vret=${i}&side=1&br=2')">S-SPARGE</button>
+      </div>
+      <div class="row">
+        <span>Port(${t.p}%):</span><input type="range" min="0" max="98" step="0.5" value="${t.p}" onchange="cmd('ct=${i}&side=0&v='+this.value)">
+        <button class="sm ${t.bhd?'open':'shut'}" onclick="cmd('bhd=${i}')">BHD:${t.bhd?'OPEN':'SHUT'}</button>
+        <span>Stbd(${t.s}%):</span><input type="range" min="0" max="98" step="0.5" value="${t.s}" onchange="cmd('ct=${i}&side=1&v='+this.value)">
+      </div>
+    </div>`;
+}
+
+// --- VIEW 5: VAPOUR/CONDENSATE HEADERS (PT/TT) & 4 VENT MAST RISERS ---
+function renderHeadersView(d) {
+  const m = d.man;
+  let branches = '';
+  for (let i = 0; i < 4; i++) {
+    const x = 58 + i * 86, t = d.ct[i], venting = m.mast[i] > 1.0;
+    const vy = t.sys === 0 ? 55 : 80, cy = t.sys === 0 ? 120 : 145;
+    branches += `
+      <!-- Vent Mast Riser #${i+1} at Top of Schematic -->
+      <line x1="${x+18}" y1="8" x2="${x+18}" y2="170" stroke="${venting?'#f44':'#555'}" stroke-width="${venting?3:1.5}"/>
+      <rect x="${x-6}" y="2" width="48" height="16" rx="2" fill="${venting?'#a00':'#123'}" stroke="${venting?'#ff0':'#08a'}"/>
+      <text x="${x+18}" y="13" fill="#fff" font-size="7" text-anchor="middle">MAST#${i+1}:${m.mast[i]}kg/h</text>
+
+      <rect x="${x-32}" y="170" width="64" height="56" rx="4" fill="#08182c" stroke="#28f" onclick="setView(${i+1})"/>
+      <text x="${x}" y="185" fill="#fff" font-size="9" font-weight="bold" text-anchor="middle">CT${i+1} (S${t.sys+1})</text>
+      <text x="${x}" y="198" fill="#0ff" font-size="8" text-anchor="middle">PT: ${t.pr} mbarg</text>
+      <text x="${x}" y="211" fill="${t.lact?'#0f0':'#fa0'}" font-size="7.5" text-anchor="middle">${t.lact?'FLOW ON':'NO FLOW'}</text>
+      <line x1="${x-12}" y1="${vy}" x2="${x-12}" y2="170" stroke="${t.vsuc?'#f55':'#444'}" stroke-width="2.5" stroke-dasharray="3,2"/>
+      <line x1="${x+2}" y1="${cy}" x2="${x+2}" y2="170" stroke="${t.lact?'#0f0':'#444'}" stroke-width="2.5"/>`;
+  }
+  document.getElementById('hdrSvg').innerHTML = `
+    <g class="info-tag">
+      <text x="10" y="45" fill="#f88" font-size="8.5" font-weight="bold">VAPOUR HDR S1 [PT:${m.vpt[0]}bar TT:${m.vtt[0]}°C] | S2 [PT:${m.vpt[1]}bar TT:${m.vtt[1]}°C]</text>
+      <text x="10" y="110" fill="#0ff" font-size="8.5" font-weight="bold">COND HDR S1 [PT:${m.cpt[0]}bar TT:${m.ctt[0]}°C] | S2 [PT:${m.cpt[1]}bar TT:${m.ctt[1]}°C]</text>
+    </g>
+    <line x1="15" y1="55" x2="365" y2="55" stroke="#f55" stroke-width="3"/>
+    <line x1="15" y1="80" x2="365" y2="80" stroke="#fa5" stroke-width="3"/>
+    <line x1="190" y1="55" x2="190" y2="80" stroke="${d.xo[0]?'#0f0':'#555'}" stroke-width="3"/>
+    <line x1="15" y1="120" x2="365" y2="120" stroke="#0ff" stroke-width="3"/>
+    <line x1="15" y1="145" x2="365" y2="145" stroke="#08f" stroke-width="3"/>
+    <line x1="190" y1="120" x2="190" y2="145" stroke="${d.xo[1]?'#0f0':'#555'}" stroke-width="3"/>
+    ${branches}`;
+  document.getElementById('hdrControls').innerHTML = `
+    <div class="card">
+      <div class="row"><b>HEADER CROSSOVER VALVES:</b>
+        <button class="sm ${d.xo[0]?'open':'shut'}" onclick="cmd('xo=0')">VAPOUR X-OVER</button>
+        <button class="sm ${d.xo[1]?'open':'shut'}" onclick="cmd('xo=1')">CONDENSATE X-OVER</button>
+        <button class="sm ${d.xo[2]?'open':'shut'}" onclick="cmd('xo=2')">LIQUID X-OVER</button>
+      </div>
+    </div>`;
+}
+
+// --- VIEW 6: SHORE MANIFOLD FLANGES, ESD/GATE VALVES, LINE PT/TT, TRV & 8 PUMPS ---
+function renderPumpsView(d) {
+  const m = d.man;
+  const s1Open = m.sc[0] && m.ev[0] && m.gv[0], s2Open = m.sc[1] && m.ev[1] && m.gv[1];
+  document.getElementById('draftBanner').innerHTML =
+    `<div class="row"><b>DRAFTS:</b> <span>Tf:<b>${d.tf}m</b></span> | <span>Tm:<b>${d.tm}m</b></span> | <span>Ta:<b>${d.ta}m</b></span> | ` +
+    `<span>LIQ S1: <b>PT=${m.lpt[0]}bar TT=${m.ltt[0]}°C</b> ${m.trv[0]?'<span style="color:#f44">🚨TRV->MAST#1</span>':''}</span></div>`;
+
+  let svgPumps = '', ctrlRows = '';
+  for (let i = 0; i < 4; i++) {
+    const x = 68 + i * 68, t = d.ct[i], dp = t.dp, ds = t.ds;
+    const ly = t.sys === 0 ? 44 : 74;
+    const pCol = dp[0] ? (dp[5] ? '#ff0' : '#0f0') : (dp[6]>0 ? '#f33' : '#555');
+    const sCol = ds[0] ? (ds[5] ? '#ff0' : '#0f0') : (ds[6]>0 ? '#f33' : '#555');
+
+    svgPumps += `
+      <rect x="${x-28}" y="118" width="56" height="84" rx="4" fill="#071526" stroke="#28f"/>
+      <text x="${x}" y="131" fill="#fff" font-size="8" font-weight="bold" text-anchor="middle">CT${i+1}(${gShort[t.g].split(' ')[0]})</text>
+      <text x="${x}" y="142" fill="#fa0" font-size="7" class="info-tag" text-anchor="middle">${t.mt}t | ${t.fl}%</text>
+      <line x1="${x-12}" y1="${ly}" x2="${x-12}" y2="184" stroke="${pCol}" stroke-width="2.5"/>
+      <circle cx="${x-12}" cy="184" r="6" fill="${pCol}" onclick="cmd('pstart=${i}&side=0','pump_start')"/>
+      <line x1="${x+12}" y1="${ly}" x2="${x+12}" y2="184" stroke="${sCol}" stroke-width="2.5"/>
+      <circle cx="${x+12}" cy="184" r="6" fill="${sCol}" onclick="cmd('pstart=${i}&side=1','pump_start')"/>`;
+
+    ctrlRows += `<div class="card">
+      <div class="row">
+        <b>CT${i+1} (${t.mt}t):</b>
+        <button class="sm ${t.g===0?'open':''}" onclick="cmd('grade=${i}&g=0')">C3</button>
+        <button class="sm ${t.g===1?'open':''}" onclick="cmd('grade=${i}&g=1')">C4</button>
+        <button class="sm ${t.g===2?'open':''}" onclick="cmd('grade=${i}&g=2')">NH3</button>
+        <button class="sm ${t.fv?'open':'shut'}" onclick="cmd('fvlv=${i}')">FILL VLV:${t.fv?'OPEN':'SHUT'}</button>
+      </div>
+      <div class="row">
+        <button class="sm ${dp[0]?'open':'shut'}" onclick="cmd('pstart=${i}&side=0','pump_start')">P:${dp[0]?'RUN':'STOP'}</button>
+        <input type="range" min="5" max="100" value="${dp[1]}" onchange="cmd('pthr=${i}&side=0&v='+this.value)">
+        <span>${dp[2]}m³/h|${dp[4]}A</span>
+        <button class="sm ${ds[0]?'open':'shut'}" onclick="cmd('pstart=${i}&side=1','pump_start')">S:${ds[0]?'RUN':'STOP'}</button>
+        <input type="range" min="5" max="100" value="${ds[1]}" onchange="cmd('pthr=${i}&side=1&v='+this.value)">
+        <span>${ds[2]}m³/h|${ds[4]}A</span>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('pmpSvg').innerHTML = `
+    <!-- Shore Manifold Flange, ESD Valve & Gate Valve Visuals on Left -->
+    <rect x="4" y="28" width="38" height="22" rx="2" fill="${s1Open?'#062':'#611'}" stroke="#fff" onclick="cmd('sconn=0')"/>
+    <text x="23" y="42" fill="#fff" font-size="7" text-anchor="middle">${m.sc[0]?'S1 CONN':'S1 DISC'}</text>
+    <rect x="4" y="58" width="38" height="22" rx="2" fill="${s2Open?'#062':'#611'}" stroke="#fff" onclick="cmd('sconn=1')"/>
+    <text x="23" y="72" fill="#fff" font-size="7" text-anchor="middle">${m.sc[1]?'S2 CONN':'S2 DISC'}</text>
+
+    <g class="info-tag">
+      <text x="48" y="20" fill="#0fa" font-size="8" font-weight="bold">LIQ S1: PT=${m.lpt[0]}bar TT=${m.ltt[0]}°C (${m.q[0]}m³/h) ${m.trv[0]?'[TRV LIFT->MAST#1!]':''}</text>
+      <text x="48" y="96" fill="#0af" font-size="8" font-weight="bold">LIQ S2: PT=${m.lpt[1]}bar TT=${m.ltt[1]}°C (${m.q[1]}m³/h) ${m.trv[1]?'[TRV LIFT->MAST#2!]':''}</text>
+    </g>
+    <line x1="42" y1="44" x2="310" y2="44" stroke="${s1Open?'#0fa':'#f44'}" stroke-width="3.5"/>
+    <line x1="42" y1="74" x2="310" y2="74" stroke="${s2Open?'#0af':'#f44'}" stroke-width="3.5"/>
+
+    <rect x="312" y="26" width="62" height="34" rx="4" fill="${m.htr?'#730':'#081828'}" stroke="#fa0" onclick="cmd('htr=1')"/>
+    <text x="343" y="41" fill="#fff" font-size="7.5" text-anchor="middle">SW HEATER</text>
+    <text x="343" y="53" fill="#fa0" font-size="7.5" text-anchor="middle">${m.et}°C</text>
+    <rect x="312" y="64" width="62" height="34" rx="4" fill="${m.bst?'#062':'#081828'}" stroke="#0f0" onclick="cmd('bst=1','pump_start')"/>
+    <text x="343" y="79" fill="#fff" font-size="7.5" text-anchor="middle">BOOSTER</text>
+    <text x="343" y="91" fill="#0f0" font-size="7.5" text-anchor="middle">${m.eb} bar</text>
+    ${svgPumps}`;
+
+  document.getElementById('pmpControls').innerHTML = `
+    <div class="card">
+      <div class="row">
+        <b>SYS 1 MANIFOLD LINEUP:</b>
+        <button class="sm ${m.sc[0]?'open':'shut'}" onclick="cmd('sconn=0')">SHORE ARM:${m.sc[0]?'CONN':'DISC'}</button>
+        <button class="sm ${m.ev[0]?'open':'shut'}" onclick="cmd('mesd=0')">ESD VLV:${m.ev[0]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.gv[0]?'open':'shut'}" onclick="cmd('mgate=0')">GATE VLV:${m.gv[0]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.op[0]===1?'open':''}" onclick="cmd('mop=0&m=1')">DISCH</button>
+        <button class="sm ${m.op[0]===2?'hot':''}" onclick="cmd('mop=0&m=2')">LOAD</button>
+      </div>
+      <div class="row">
+        <b>SYS 2 MANIFOLD LINEUP:</b>
+        <button class="sm ${m.sc[1]?'open':'shut'}" onclick="cmd('sconn=1')">SHORE ARM:${m.sc[1]?'CONN':'DISC'}</button>
+        <button class="sm ${m.ev[1]?'open':'shut'}" onclick="cmd('mesd=1')">ESD VLV:${m.ev[1]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.gv[1]?'open':'shut'}" onclick="cmd('mgate=1')">GATE VLV:${m.gv[1]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.op[1]===1?'open':''}" onclick="cmd('mop=1&m=1')">DISCH</button>
+        <button class="sm ${m.op[1]===2?'hot':''}" onclick="cmd('mop=1&m=2')">LOAD</button>
+      </div>
+    </div>${ctrlRows}`;
+}
+
+// --- VIEW 7: COMPRESSOR ROOM ---
+function renderCompView(d) {
+  let units = '', cards = '';
+  const mNames = ['STOPPED', 'RELIQ MODE', 'HOT GAS'];
+  for (let c = 0; c < 4; c++) {
+    const x = 52 + c * 90, m = d.comp[c][0], sys = d.comp[c][1];
+    const col = m === 1 ? '#0f8' : (m === 2 ? '#fa0' : '#555');
+    units += `
+      <rect x="${x-32}" y="26" width="64" height="55" rx="5" fill="#091a2e" stroke="${col}" stroke-width="2"/>
+      <text x="${x}" y="42" fill="#fff" font-size="9" font-weight="bold" text-anchor="middle">COMP #${c+1}</text>
+      <text x="${x}" y="55" fill="${col}" font-size="8" text-anchor="middle">${mNames[m]}</text>
+      <text x="${x}" y="68" fill="#0ff" font-size="8" text-anchor="middle">SYS ${sys+1}</text>
+      <line x1="${x}" y1="81" x2="${x}" y2="122" stroke="${col}" stroke-width="3"/>
+      <circle cx="${x}" cy="102" r="5" fill="#ff0"/>
+      <rect x="${x-26}" y="122" width="52" height="40" rx="4" fill="#071320" stroke="#08a"/>
+      <text x="${x}" y="140" fill="#0ff" font-size="8" text-anchor="middle">MOTOR #${c+1}</text>
+      <text x="${x}" y="153" fill="#8f8" font-size="8" text-anchor="middle">${m>0?'142A':'0A'}</text>`;
+    cards += `<div class="card">
+      <div><b>COMP #${c+1} (SYS ${sys+1})</b></div>
+      <div class="row" style="margin-top:4px;">
+        <button class="sm ${m===0?'shut':''}" onclick="cmd('comp=${c}&m=0')">STOP</button>
+        <button class="sm ${m===1?'open':''}" onclick="cmd('comp=${c}&m=1','pump_start')">RELIQ</button>
+        <button class="sm ${m===2?'hot':''}" onclick="cmd('comp=${c}&m=2','pump_start')">HOT GAS</button>
+        <button class="sm" onclick="cmd('csys=${c}')">SYS ${sys+1}</button>
+      </div>
+    </div>`;
+  }
+  document.getElementById('compSvg').innerHTML = `
+    <text x="190" y="15" fill="#0ff" font-size="9" font-weight="bold" text-anchor="middle">COMPRESSOR ROOM (VENT: ${d.cvent?'RUNNING':'STOPPED'})</text>
+    <line x1="10" y1="102" x2="370" y2="102" stroke="#f44" stroke-width="3" stroke-dasharray="6,3"/>
+    <text x="190" y="180" fill="#0ff" font-size="9" font-weight="bold" text-anchor="middle">ELECTRIC MOTOR ROOM (+dP: ${d.mdp} Pa)</text>${units}`;
+  document.getElementById('compControls').innerHTML = cards;
+}
+
+// --- VIEW 8: BALLAST WBT ---
+function renderBallastView(d) {
+  const pair = d.wtgt, pPct = d.wbt[pair*2][0], sPct = d.wbt[pair*2+1][0];
+  const pH = (pPct / 100) * 125, sH = (sPct / 100) * 125;
+  document.getElementById('wbtSvg').innerHTML = `
+    <defs>
+      <clipPath id="wP"><polygon points="30,25 95,25 95,65 58,65 58,120 185,120 185,150 30,150"/></clipPath>
+      <clipPath id="wS"><polygon points="350,25 285,25 285,65 322,65 322,120 195,120 195,150 350,150"/></clipPath>
+    </defs>
+    <rect x="30" y="${150-pH}" width="160" height="${pH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wP)"/>
+    <rect x="190" y="${150-sH}" width="160" height="${sH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wS)"/>
+    <polygon points="30,25 95,25 95,65 58,65 58,120 185,120 185,150 30,150" fill="none" stroke="#0cf" stroke-width="2"/>
+    <polygon points="350,25 285,25 285,65 322,65 322,120 195,120 195,150 350,150" fill="none" stroke="#0cf" stroke-width="2"/>
+    <text x="110" y="142" fill="#fff" font-size="9">PORT: ${pPct}%</text>
+    <text x="235" y="142" fill="#fff" font-size="9">STBD: ${sPct}%</text>`;
+  const wNames = ['WBT1P','WBT1S','WBT2P','WBT2S','WBT3P','WBT3S','WBT4P','WBT4S','FPK','APT'];
+  let sliders = '';
+  for (let j = 0; j < 10; j += 2) {
+    sliders += `<div class="row"><span style="width:75px">${wNames[j]}:${d.wbt[j][0]}%</span>` +
+      `<input type="range" min="0" max="100" value="${d.wbt[j][0]}" onchange="cmd('wbt=${j}&v='+this.value)">` +
+      `<input type="range" min="0" max="100" value="${d.wbt[j+1][0]}" onchange="cmd('wbt=${j+1}&v='+this.value)">` +
+      `<span style="width:75px;text-align:right">${wNames[j+1]}:${d.wbt[j+1][0]}%</span></div>`;
+  }
+  document.getElementById('wbtControls').innerHTML = `
+    <div class="card">
+      <div class="row">
+        <button class="sm" onclick="cmd('wtgt=0')">WBT1</button><button class="sm" onclick="cmd('wtgt=1')">WBT2</button>
+        <button class="sm" onclick="cmd('wtgt=2')">WBT3</button><button class="sm" onclick="cmd('wtgt=3')">WBT4</button>
+        <button class="sm" onclick="cmd('bp=0&m=1','pump_start');cmd('bp=1&m=1')">BALLAST IN</button>
+        <button class="sm" onclick="cmd('bp=0&m=2','pump_start');cmd('bp=1&m=2')">DEBALLAST</button>
+        <button class="sm shut" onclick="cmd('bp=0&m=0');cmd('bp=1&m=0')">STOP</button>
+      </div>${sliders}
+    </div>`;
+}
+
+// --- VIEW 9: FGD & ESD-1 SAFETY MATRIX ---
+function renderSafetyView(d) {
+  const zNames = ['HOLD SPACE 1', 'HOLD SPACE 2', 'HOLD SPACE 3', 'HOLD SPACE 4', 'COMPRESSOR ROOM', 'E-MOTOR ROOM'];
+  let rows = '';
+  d.fgd.forEach((z, idx) => {
+    const col = z[4] === 2 ? '#f33' : (z[4] === 1 ? '#fa0' : '#0f8');
+    rows += `<div class="card" style="border-color:${col}">
+      <div class="row">
+        <b style="color:${col}">${zNames[idx]}</b>
+        <span>HC: <b>${z[0]}% LEL</b> | O2: <b>${z[1]}%</b> | NH3: <b>${z[2]} ppm</b></span>
+        <button class="sm ${z[3]?'shut':'open'}" onclick="cmd('leak=${idx}','alarm')">${z[3]?'STOP LEAK':'SIMULATE LEAK'}</button>
+      </div>
+    </div>`;
+  });
+  document.getElementById('fgdControls').innerHTML = `
+    <div class="card" style="border-color:${d.esd?'#f22':'#0aa'};background:${d.esd?'#300':'var(--bg-card)'}">
+      <div class="row">
+        <b style="font-size:13px;color:${d.esd?'#ff0':'#0f0'}">ESD-1 STATUS: ${d.esd ? '🚨 TRIPPED!' : '✅ ARMED & NORMAL'}</b>
+        <span>Last Cause: <b>${d.cause}</b></span>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <button class="sm shut" onclick="cmd('esd=1','alarm_buzzer')">MANUAL ESD-1 TRIP</button>
+        <button class="sm open" onclick="cmd('esd=0','success')">RESET ESD-1 & TRIPS</button>
+        <button class="sm ${d.cvent?'open':'shut'}" onclick="cmd('esd=2')">COMP VENT: ${d.cvent?'ON':'FAIL'}</button>
+        <button class="sm ${d.mdp>20?'open':'shut'}" onclick="cmd('esd=3')">MOTOR RM +dP: ${d.mdp} Pa</button>
+        <button class="sm ${d.floop?'open':'shut'}" onclick="cmd('esd=4')">FIRE LOOP (104°C)</button>
+      </div>
+    </div>${rows}`;
+}
+
+// --- VIEW 10: LOADICATOR ---
+function drawStationCurve(canvasId, arr, peakVal) {
+  const cv = document.getElementById(canvasId);
+  if (!cv || !arr) return;
+  const cx = cv.getContext('2d'), w = cv.width, h = cv.height, midY = h / 2;
+  cx.clearRect(0, 0, w, h);
+  const limY = (100 / 140) * (midY - 6);
+  cx.strokeStyle = '#622'; cx.setLineDash([4, 3]);
+  cx.beginPath(); cx.moveTo(0, midY - limY); cx.lineTo(w, midY - limY);
+  cx.moveTo(0, midY + limY); cx.lineTo(w, midY + limY); cx.stroke();
+  cx.setLineDash([]);
+  cx.strokeStyle = '#257'; cx.beginPath(); cx.moveTo(0, midY); cx.lineTo(w, midY); cx.stroke();
+  cx.strokeStyle = Math.abs(peakVal) > 100 ? '#ff3355' : '#00ffaa';
+  cx.lineWidth = 2.2; cx.beginPath();
+  arr.forEach((v, s) => {
+    const x = (s / 19) * (w - 20) + 10, y = midY - (v / 140) * (midY - 6);
+    s === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+  });
+  cx.stroke();
+}
+
+function renderLoadicatorView(d) {
+  document.getElementById('loadTables').innerHTML = `
+    <div class="grid2">
+      <div class="card">
+        <b>DRAFTS & HYDROSTATICS</b>
+        <div class="row"><span>Displacement (Δ):</span><b>${d.disp} MT</b></div>
+        <div class="row"><span>Tf / Tm / Ta:</span><b>${d.tf}m / ${d.tm}m / ${d.ta}m</b></div>
+        <div class="row"><span>Trim:</span><b>${d.trim>0?'+':''}${d.trim} m</b></div>
+        <div class="row"><span>TPC / MCTC:</span><b>${d.tpc} t/cm | ${d.mctc}</b></div>
+      </div>
+      <div class="card">
+        <b>STABILITY & STRENGTH</b>
+        <div class="row"><span>KMt / KG / FSC:</span><b>${d.kmt}m / ${d.kg}m / -${d.fsc}m</b></div>
+        <div class="row"><span>Fluid GM0 / List:</span><b style="color:#0f0">${d.gm}m | ${d.heel}°</b></div>
+        <div class="row"><span>Seagoing SF / BM:</span><b>${d.sf}% / ${d.bm}%</b></div>
+        <div class="row"><span>Harbor SF / BM:</span><b>${d.hsf}% / ${d.hbm}%</b></div>
+      </div>
+    </div>`;
+  drawStationCurve('bmCurveCv', d.bm_c, d.bm);
+  drawStationCurve('sfCurveCv', d.sf_c, d.sf);
+}
+
+// --- VIEW 11: PHASE 6 PRESETS ENGINE (PRE-DD, POST-DD, CARGO OPS & CUSTOM SAVER) ---
+function renderPresetsView(d) {
+  let html = `<div class="card" style="border-color:#0f0">
+    <div class="row">
+      <b>SNAPSHOT CURRENT SHIP STATE AS NEW PRESET:</b>
+      <button class="sm open" onclick="cmd('preset=-1','success')">➕ SAVE CURRENT STATE AS PRESET</button>
+    </div>
+  </div><div class="grid2">`;
+  d.presets.forEach((p, idx) => {
+    html += `<div class="card">
+      <div style="color:#fa0;font-size:9px;font-weight:bold">[${p.c}]</div>
+      <div style="margin:4px 0;font-weight:bold;color:#fff">${p.n}</div>
+      <button class="sm open" style="width:100%" onclick="cmd('preset=${idx}','success')">⚡ LOAD PRESET</button>
+    </div>`;
+  });
+  html += `</div>`;
+  document.getElementById('presetList').innerHTML = html;
+}
+
+window.renderActiveView = function(d) {
+  if (curView >= 1 && curView <= 4) renderTankView(d);
+  else if (curView === 5) renderHeadersView(d);
+  else if (curView === 6) renderPumpsView(d);
+  else if (curView === 7) renderCompView(d);
+  else if (curView === 8) renderBallastView(d);
+  else if (curView === 9) renderSafetyView(d);
+  else if (curView === 10) renderLoadicatorView(d);
+  else if (curView === 11) renderPresetsView(d);
+};
+
+async function sync(q = '', sfx = '') {
+  if (sfx) playSfx(sfx);
+  else if (q) playSfx('valve_toggle');
+  const r = await fetch('/state' + (q ? '?' + q : ''));
+  const d = await r.json();
+  if (d.esd && (!lastData || !lastData.esd)) playSfx('alarm_buzzer');
+  lastData = d;
+  update3DShip(d);
+
+  const anyVent = d.man.mast.some(v => v > 1.0);
+  const heelStr = d.heel < -0.05 ? `${Math.abs(d.heel).toFixed(1)}°P` : (d.heel > 0.05 ? `${d.heel.toFixed(1)}°S` : '0.0°');
+  document.getElementById('hudTop').innerHTML =
+    `<b>${d.spd}x</b> | <b>Tf:${d.tf}m Tm:${d.tm}m Ta:${d.ta}m</b> | List:<b>${heelStr}</b> | GM0:<b>${d.gm}m</b> | ` +
+    `${anyVent?'<span style="color:#fa0;font-weight:bold">💨MAST VENTING</span> ':''}` +
+    `${d.esd?'<span style="color:#f44;font-weight:bold">🚨ESD-1</span>':'OK'}`;
+  window.renderActiveView(d);
+}
+
+function cmd(q, sfx = '') { sync(q, sfx); }
+setInterval(() => sync(), 300);
+sync();
+
+</script>
+</body>
+</html>
