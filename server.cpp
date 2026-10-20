@@ -36,8 +36,10 @@ void handle_cmd(const std::string& req) {
         }
     } else if (std::sscanf(q, "pthr=%d&side=%d&v=%lf", &a, &b, &v) == 3 && a >= 0 && a < 4) {
         sim.dwp[a][b & 1].throttle_pct = std::clamp(v, 0.0, 100.0);
+    } else if (std::sscanf(q, "fvlv=%d&v=%lf", &a, &v) == 2 && a >= 0 && a < 4) {
+        if (!sim.fgd.esd1_active) sim.th[a].fill_vlv_pct = std::clamp(v, 0.0, 100.0);
     } else if (std::sscanf(q, "fvlv=%d", &a) == 1 && a >= 0 && a < 4) {
-        if (!sim.fgd.esd1_active) sim.man.fill_vlv[a] = !sim.man.fill_vlv[a];
+        if (!sim.fgd.esd1_active) sim.th[a].fill_vlv_pct = (sim.th[a].fill_vlv_pct > 5.0) ? 0.0 : 100.0;
     } else if (std::sscanf(q, "vsuc=%d", &a) == 1 && a >= 0 && a < 4) {
         sim.th[a].vap_suc_vlv = !sim.th[a].vap_suc_vlv;
     } else if (std::sscanf(q, "cin=%d", &a) == 1 && a >= 0 && a < 4) {
@@ -46,8 +48,10 @@ void handle_cmd(const std::string& req) {
         sim.man.shore_conn[a] = !sim.man.shore_conn[a];
     } else if (std::sscanf(q, "mesd=%d", &a) == 1 && (a == 0 || a == 1)) {
         if (!sim.fgd.esd1_active) sim.man.esd_vlv[a] = !sim.man.esd_vlv[a];
+    } else if (std::sscanf(q, "mgate=%d&v=%lf", &a, &v) == 2 && (a == 0 || a == 1)) {
+        sim.man.gate_vlv_pct[a] = std::clamp(v, 0.0, 100.0);
     } else if (std::sscanf(q, "mgate=%d", &a) == 1 && (a == 0 || a == 1)) {
-        sim.man.gate_vlv[a] = !sim.man.gate_vlv[a];
+        sim.man.gate_vlv_pct[a] = (sim.man.gate_vlv_pct[a] > 5.0) ? 0.0 : 100.0;
     } else if (std::sscanf(q, "mop=%d&m=%d", &a, &b) == 2 && (a == 0 || a == 1)) {
         if (!sim.fgd.esd1_active) sim.man.op_mode[a] = std::clamp(b, 0, 2);
     } else if (std::sscanf(q, "sbar=%d&v=%lf", &a, &v) == 2 && (a == 0 || a == 1)) {
@@ -63,7 +67,7 @@ void handle_cmd(const std::string& req) {
         double def_t = (b == 0) ? -41.5 : (b == 1 ? -0.3 : -32.8);
         sim.th[a].t_liquid = def_t; sim.th[a].t_bot_shell = def_t + 0.3;
         sim.th[a].t_vapor  = def_t + 1.5; sim.th[a].t_top_shell = def_t + 2.5;
-        sim.th[a].press_mbarg = sim.th[a].sat_press_mbarg(def_t);
+        sim.th[a].press_kpa = sim.th[a].sat_press_kpa(def_t);
         sim.th[a].sync_mass_from_vol(sim.ct_m3[a][0], sim.ct_m3[a][1]);
     } else if (std::sscanf(q, "tshell=%d&v=%lf", &a, &v) == 2 && a >= 0 && a < 4) {
         sim.th[a].t_top_shell = v; sim.th[a].t_bot_shell = v - 1.5; sim.th[a].t_vapor = v - 0.5;
@@ -99,11 +103,13 @@ void handle_cmd(const std::string& req) {
     } else if (std::sscanf(q, "bpr=%d", &a) == 1 && (a == 0 || a == 1)) {
         sim.bal.pump_run[a] = !sim.bal.pump_run[a];
     } else if (std::sscanf(q, "bop=%d", &a) == 1) {
-        sim.bal.op_mode = std::clamp(a, 0, 4);
+        sim.bal.op_mode = std::clamp(a, 0, 5);
     } else if (std::sscanf(q, "bxo=%d", &a) == 1) {
         sim.bal.ring_xover = !sim.bal.ring_xover;
+    } else if (std::sscanf(q, "bvlv=%d&v=%lf", &a, &v) == 2 && a >= 0 && a < 10) {
+        sim.bal.wbt_vlv_pct[a] = std::clamp(v, 0.0, 100.0);
     } else if (std::sscanf(q, "bvlv=%d", &a) == 1 && a >= 0 && a < 10) {
-        sim.bal.wbt_vlv[a] = !sim.bal.wbt_vlv[a];
+        sim.bal.wbt_vlv_pct[a] = (sim.bal.wbt_vlv_pct[a] > 5.0) ? 0.0 : 100.0;
     } else if (std::sscanf(q, "wtgt=%d", &a) == 1) {
         sim.wbt_target = std::clamp(a, 0, 4);
     } else if (std::sscanf(q, "spd=%lf", &v) == 1) {
@@ -119,14 +125,14 @@ int main() {
     sockaddr_in addr{AF_INET, htons(8080), {INADDR_ANY}, {}};
     bind(srv, (sockaddr*)&addr, sizeof(addr));
     listen(srv, 12);
-    std::cout << "VLGC Simulator v1.1 (Ballast Network, Air/SW Thermo & Mass Conservation) live at http://127.0.0.1:8080\n";
+    std::cout << "VLGC Simulator v1.2 live at http://127.0.0.1:8080\n";
 
     char buf[2048];
     while (true) {
         int cli = accept(srv, nullptr, nullptr);
         std::memset(buf, 0, sizeof(buf));
         read(cli, buf, sizeof(buf) - 1);
-        std::string req(buf), body, type = "application/json";
+        std::string req(buf), body, type = "application/json; charset=utf-8";
 
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_tick).count();
@@ -137,11 +143,11 @@ int main() {
             sim.step(std::min(dt, 1.0));
             body = sim.to_json();
         } else if (req.find("GET /standalone_sim.js") != std::string::npos) {
-            type = "application/javascript"; body = load_file("standalone_sim.js");
+            type = "application/javascript; charset=utf-8"; body = load_file("standalone_sim.js");
         } else if (req.find("GET /ui_3d.js") != std::string::npos) {
-            type = "application/javascript"; body = load_file("ui_3d.js");
+            type = "application/javascript; charset=utf-8"; body = load_file("ui_3d.js");
         } else if (req.find("GET /ui_mimics.js") != std::string::npos) {
-            type = "application/javascript"; body = load_file("ui_mimics.js");
+            type = "application/javascript; charset=utf-8"; body = load_file("ui_mimics.js");
         } else if (req.find("GET /assets/") != std::string::npos) {
             auto s = req.find("/assets/") + 1;
             auto e = req.find(" ", s);
@@ -149,10 +155,10 @@ int main() {
             if (path.find(".ogg") != std::string::npos) type = "audio/ogg";
             else if (path.find(".ttf") != std::string::npos) type = "font/ttf";
             else if (path.find(".gltf") != std::string::npos) type = "model/gltf+json";
-            else type = "text/plain";
+            else type = "text/plain; charset=utf-8";
             body = load_file(path);
         } else {
-            type = "text/html"; body = load_file("index.html");
+            type = "text/html; charset=utf-8"; body = load_file("index.html");
         }
         std::string res = "HTTP/1.1 200 OK\r\nContent-Type: " + type +
                           "\r\nContent-Length: " + std::to_string(body.size()) +

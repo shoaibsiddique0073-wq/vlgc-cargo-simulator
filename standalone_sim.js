@@ -235,3 +235,191 @@
     return origFetch(url, opts);
   };
 })();
+    S.ct.forEach((t, i) => {
+      const gr = GRADES[t.g];
+      t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
+      const rhoRef = gr.r15 * (1 - gr.a * (gr.tr - 15));
+      t.fl = +Math.min(98, 98 * (rhoRef / t.rho)).toFixed(1);
+      t.hpr = +(2.0 + (0.7*S.sw + 0.3*S.air - 15)*0.025).toFixed(2);
+
+      if (t.bhd && dt > 0) {
+        const hp = (t.p/100)*18.5, hs = (t.s/100)*18.5;
+        const dh = (hp - hs) + 2.0 * 7.2 * Math.tan(S.heel * Math.PI / 180);
+        if (Math.abs(dh) > 0.005) {
+          const qOrf = 0.65 * 0.125 * Math.sqrt(2 * 9.81 * Math.abs(dh));
+          const maxEq = (Math.abs(dh)/18.5) * 10500 * (t.rho/1000) * 0.45;
+          const dm = Math.min(maxEq, qOrf * dt * (t.rho/1000)) * (dh > 0 ? 1 : -1);
+          t.mp = Math.max(0, +(t.mp - dm).toFixed(2));
+          t.ms = Math.max(0, +(t.ms + dm).toFixed(2));
+        }
+      }
+
+      const kvGate = Math.pow(S.man.gv[t.sys] / 100, 1.25);
+      const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && (kvGate > 0.01);
+      [t.dp, t.ds].forEach((p, sd) => {
+        if (p[0]) {
+          const q = Math.round((p[1]/100) * 620 * (mOpen ? Math.sqrt(kvGate) : 0));
+          p[2] = mOpen && S.man.op[t.sys]===1 ? q : 0;
+          p[3] = +(mOpen ? S.man.sb[t.sys] + 1.5 + (1-kvGate)*4.5 : 13.5).toFixed(1);
+          p[4] = Math.round(45 + (q/600)*115);
+          if (dt > 0 && mOpen && S.man.op[t.sys]===1) {
+            const dmt = (q/3600)*dt*(t.rho/1000);
+            if (sd===0) t.mp = Math.max(0, +(t.mp - dmt).toFixed(2));
+            else t.ms = Math.max(0, +(t.ms - dmt).toFixed(2));
+          }
+          S.man.q[t.sys] += p[2];
+        } else { p[2]=0; p[3]=0; p[4]=0; }
+      });
+
+      if (lw[i] > 0 && sumLw[t.sys] > 0) {
+        const qHdr = 2400 * kvGate * Math.min(1, sumLw[t.sys] / 0.85);
+        t.lq = Math.round(qHdr * (lw[i] / sumLw[t.sys]));
+        if (dt > 0) {
+          const dmt = (t.lq / 3600) * dt * (t.rho / 1000) * 0.5;
+          t.mp += dmt; t.ms += dmt; S.man.q[t.sys] += t.lq;
+          t.pr = +(t.pr + (t.lq / 3600) * dt * 0.012).toFixed(2);
+        }
+      }
+
+      if (dt > 0) {
+        const dtHr = dt / 3600;
+        t.ts = +(t.ts + (S.air - t.ts) * 0.008 * dtHr).toFixed(2);
+        t.bs = +(t.bs + (S.sw - t.bs) * 0.006 * dtHr).toFixed(2);
+      }
+      const nOpen = t.vr.reduce((a,b)=>a+b, 0);
+      t.lact = (t.vsuc && t.cin && nOpen > 0 && flowSys[t.sys] > 0) ? 1 : 0;
+      if (t.lact && dt > 0) {
+        const tSup = hotSys[t.sys] ? 68 : gr.tb - 1;
+        const rate = ((tSup - t.ts) * 0.08 * (swEff/100)) * (dt / 3600);
+        t.ts = +(t.ts + rate).toFixed(2); t.bs = +(t.bs + rate*0.85).toFixed(2);
+        t.tv = +(t.tv + rate*1.1).toFixed(2); t.cr = +((rate / (dt/3600))).toFixed(2);
+      } else { t.cr = 0.0; }
+
+      t.mt = +(t.mp + t.ms).toFixed(1);
+      t.p = +Math.min(98, (t.mp / (10500 * (t.rho/1000))) * 100).toFixed(1);
+      t.s = +Math.min(98, (t.ms / (10500 * (t.rho/1000))) * 100).toFixed(1);
+
+      const pEq = Math.max(1.0, (Math.pow(10, gr.A - gr.B / (t.tl + 273.15 + gr.C)) - 1.01325) * 100);
+      t.pr = +(t.pr * 0.85 + pEq * 0.15).toFixed(2);
+      if (t.pr >= 25.0) { S.man.marvs[i] = 1; S.man.mast[i] = Math.round((t.pr-24.5)*850); }
+      else S.man.marvs[i] = 0;
+
+      sumW += t.mt; sumMx += t.mt * lcgCt[i]; sumMy += (t.ms - t.mp) * 7.2;
+      sumMz += t.mt * (1.8 + ((t.p+t.s)/200)*10.2);
+      if (t.p > 2 && t.p < 95) sumFsm += 1100;
+    });
+
+    const nBp = S.bal.pr[0] + S.bal.pr[1], maxBpCap = nBp === 0 ? 0 : (nBp === 1 ? 1250 : 2320);
+    let sumBrCap = 0;
+    const brCap = S.wbt.map((w, j) => {
+      const kv = Math.pow(w[2] / 100, 1.25); if (kv < 0.01) return 0;
+      if (S.bal.op === 5) {
+        const hTk = j>=8 ? 3+(w[0]/100)*11 : (w[0]<=45 ? (w[0]/45)*2.8 : (w[0]<=70 ? 2.8+((w[0]-45)/25)*9.7 : 12.5+((w[0]-70)/30)*8.5));
+        const dh = S.tm - hTk;
+        return Math.abs(dh) > 0.15 ? Math.sign(dh) * Math.min(650*kv, kv*175*Math.sqrt(Math.abs(dh))) : 0;
+      }
+      const cap = 650 * kv; sumBrCap += cap; return cap;
+    });
+
+    if (S.bal.op === 5) {
+      S.bal.q = Math.round(brCap.reduce((a,b)=>a+Math.abs(b), 0));
+      S.bal.pq = [0,0]; S.bal.pb = [0,0]; S.bal.pa = [0,0];
+    } else {
+      S.bal.q = (nBp > 0 && S.bal.op > 0 && sumBrCap > 0) ? Math.round(Math.min(maxBpCap, sumBrCap)) : 0;
+      [0,1].forEach(p => {
+        S.bal.pq[p] = S.bal.pr[p] ? Math.round(S.bal.q / Math.max(1, nBp)) : 0;
+        S.bal.pb[p] = S.bal.pr[p] ? +(3.4 - (S.bal.pq[p]/1250)*0.85).toFixed(2) : 0;
+        S.bal.pa[p] = S.bal.pr[p] ? Math.round(68 + (S.bal.pq[p]/1250)*112) : 0;
+      });
+    }
+
+    S.wbt.forEach((w, j) => {
+      w[3] = S.bal.op === 5 ? Math.round(brCap[j]) : ((S.bal.q > 0 && sumBrCap > 0) ? Math.round((brCap[j]/sumBrCap)*S.bal.q*(S.bal.op===2?-1:1)) : 0);
+      if (dt > 0 && w[3] !== 0) w[0] = +Math.max(0, Math.min(100, w[0] + ((w[3]/3600)*dt/25))).toFixed(1);
+      w[1] = w[0] <= 45 ? 0 : (w[0] <= 70 ? 1 : 2);
+      const wm = (w[0]/100) * (j>=8 ? 1600 : 2500) * 1.025;
+      const sign = j >= 8 ? 0 : (j % 2 === 0 ? -1 : 1);
+      sumW += wm; sumMx += wm * lcgWbt[j];
+      sumMy += wm * sign * (w[1]===0 ? 8.4 : (w[1]===1 ? 16.8 : 14.5));
+      sumMz += wm * (w[1]===0 ? 2.0 : (w[1]===1 ? 7.5 : 14.5));
+      sumFsm += (w[1]===1 ? 85 : 550);
+    });
+
+    S.disp = Math.round(sumW); S.tm = +(4.0 + (sumW - 23400) / 6800).toFixed(2);
+    S.kmt = +(22.5 - S.tm * 0.55).toFixed(2); S.kg = +(sumMz / sumW).toFixed(2);
+    S.fsc = +(sumFsm / sumW).toFixed(2); S.gm = +Math.max(0.3, S.kmt - S.kg - S.fsc).toFixed(2);
+    S.lcg = +(sumMx / sumW).toFixed(2); S.trim = +((sumW * (S.lcg - S.lcb)) / (S.mctc * 100)).toFixed(2);
+    S.tf = +(S.tm + S.trim * 0.48).toFixed(2); S.ta = +(S.tm - S.trim * 0.52).toFixed(2);
+    S.heel = +Math.max(-18, Math.min(18, Math.atan2(sumMy / sumW, S.gm) * (180/Math.PI))).toFixed(2);
+
+    const midLoad = ((S.ct[1].p + S.ct[2].p) - (S.wbt[2][0] + S.wbt[4][0])*0.45) * 0.55;
+    for (let s = 0; s < 20; s++) {
+      const x = (s - 9.5) / 9.5;
+      S.bm_c[s] = s===19 ? 0 : +(Math.cos(x * Math.PI * 0.5) * (-42 - midLoad * 0.35)).toFixed(1);
+      S.sf_c[s] = s===19 ? 0 : +(Math.sin(x * Math.PI) * (38 + Math.abs(midLoad) * 0.25)).toFixed(1);
+    }
+    S.bm = +Math.max(...S.bm_c.map(Math.abs)).toFixed(1); S.sf = +Math.max(...S.sf_c.map(Math.abs)).toFixed(1);
+    S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
+  }
+
+  function parseCmd(url) {
+    const q = url.split('?')[1]; if (!q) return;
+    const p = new URLSearchParams(q);
+    if (p.has('spd')) S.spd = +p.get('spd'); if (p.has('air')) S.air = +p.get('air'); if (p.has('sw')) S.sw = +p.get('sw');
+    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; syncMass(S.ct[i]); }
+    if (p.has('bhd')) { const i = +p.get('bhd'); S.ct[i].bhd = 1 - S.ct[i].bhd; }
+    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; syncMass(S.ct[i]); }
+    if (p.has('sys')) { const i = +p.get('sys'); S.ct[i].sys = 1 - S.ct[i].sys; }
+    if (p.has('vsuc')) { const i = +p.get('vsuc'); S.ct[i].vsuc = 1 - S.ct[i].vsuc; }
+    if (p.has('cin')) { const i = +p.get('cin'); S.ct[i].cin = 1 - S.ct[i].cin; }
+    if (p.has('fvlv')) { const i = +p.get('fvlv'); S.ct[i].fv = p.has('v') ? +p.get('v') : (S.ct[i].fv > 5 ? 0 : 100); }
+    if (p.has('vret')) { const i = +p.get('vret'), idx = (+p.get('side'))*3 + (+p.get('br')); S.ct[i].vr[idx] = 1 - S.ct[i].vr[idx]; }
+    if (p.has('pstart')) { const i = +p.get('pstart'), s = +p.get('side'); const arr = s===0 ? S.ct[i].dp : S.ct[i].ds; arr[0] = 1 - arr[0]; }
+    if (p.has('pthr')) { const i = +p.get('pthr'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].dp[1]=v; else S.ct[i].ds[1]=v; }
+    if (p.has('sconn')) { const s = +p.get('sconn'); S.man.sc[s] = 1 - S.man.sc[s]; }
+    if (p.has('mesd')) { const s = +p.get('mesd'); S.man.ev[s] = 1 - S.man.ev[s]; }
+    if (p.has('mgate')) { const s = +p.get('mgate'); S.man.gv[s] = p.has('v') ? +p.get('v') : (S.man.gv[s] > 5 ? 0 : 100); }
+    if (p.has('mop')) { S.man.op[+p.get('mop')] = +p.get('m'); }
+    if (p.has('htr')) S.man.htr = 1 - S.man.htr; if (p.has('bst')) S.man.bst = 1 - S.man.bst;
+    if (p.has('comp')) S.comp[+p.get('comp')][0] = +p.get('m');
+    if (p.has('csys')) { const c = +p.get('csys'); S.comp[c][1] = 1 - S.comp[c][1]; }
+    if (p.has('xo')) { const x = +p.get('xo'); S.xo[x] = 1 - S.xo[x]; }
+    if (p.has('wbt')) S.wbt[+p.get('wbt')][0] = +p.get('v');
+    if (p.has('bpr')) { const b = +p.get('bpr'); S.bal.pr[b] = 1 - S.bal.pr[b]; }
+    if (p.has('bop')) S.bal.op = +p.get('bop'); if (p.has('bxo')) S.bal.xo = 1 - S.bal.xo;
+    if (p.has('bvlv')) { const j = +p.get('bvlv'); S.wbt[j][2] = p.has('v') ? +p.get('v') : (S.wbt[j][2] > 5 ? 0 : 100); }
+    if (p.has('wtgt')) S.wtgt = +p.get('wtgt');
+    if (p.has('leak')) { const z = +p.get('leak'); S.fgd[z][3] = 1 - S.fgd[z][3]; }
+    if (p.has('esd')) {
+      const e = +p.get('esd');
+      if (e===1) { S.esd=1; S.cause="MANUAL ESD-1 PUSHBUTTON"; }
+      else if (e===0) { S.esd=0; S.cause="ESD RESET - NORMAL"; S.fgd.forEach(z=>{z[0]=0;z[3]=0;z[4]=0;}); }
+    }
+    if (p.has('preset')) {
+      const idx = +p.get('preset');
+      if (idx === -1) S.presets.push({...PRESETS[0], n:"Custom Snapshot #" + (S.presets.length - 11), c:"CUSTOM", p:S.ct[0].p});
+      else if (S.presets[idx]) {
+        const pr = S.presets[idx]; S.esd = 0; S.comp.forEach(c => c[0] = pr.cm); S.man.op = [pr.mop, pr.mop];
+        S.ct.forEach(t => {
+          t.g = t.sys===0 ? pr.g1 : pr.g2; t.p = pr.p; t.s = pr.p; t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr;
+          t.hc = pr.hc; t.ig = pr.ig; t.o2 = pr.o2; t.prg = pr.prg; t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv;
+          syncMass(t);
+        });
+        S.wbt.forEach(w => w[0] = pr.wbt);
+      }
+    }
+  }
+
+  const origFetch = window.fetch;
+  let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
+  window.fetch = async function(url, opts) {
+    if (typeof url === 'string' && url.includes('/state')) {
+      if (!serverlessMode) {
+        try { const r = await origFetch(url, opts); if (r.ok) return r; } catch(e) { serverlessMode = true; }
+      }
+      parseCmd(url); stepLocal(0.3);
+      return { ok: true, json: async () => S };
+    }
+    return origFetch(url, opts);
+  };
+})();
