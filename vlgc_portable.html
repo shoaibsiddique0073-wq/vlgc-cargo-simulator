@@ -149,7 +149,7 @@
 </div>
 
 <script>
-// Automatic Serverless Physics Fallback for GitHub Pages & WhatsApp Sharing
+// Automatic Serverless Physics Fallback v1.1 (Ballast Network, Air/SW Thermo & Mass Conservation)
 (function() {
   const GRADES = [
     {mw:44.097, tb:-42.1, A:3.92828, B:803.997, C:-26.11, r15:507.5, a:0.00162, tr:-36.8},
@@ -172,23 +172,33 @@
   ];
 
   const S = {
-    spd:1, time:0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
+    spd:1, time:0, air:25.0, sw:22.0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
     tpc:68.2, mctc:995, lcb:1.9, lcf:-2.6, lcg:1.5, kmt:16.9, kg:11.8, fsc:1.2, gm:3.9,
-    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, bp:[0,0], xo:[0,0,0],
+    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, xo:[0,0,0],
     esd:0, cause:"SYSTEM NORMAL", mdp:55, cvent:1, floop:1,
+    bal:{pr:[0,0], op:1, xo:1, q:0, pq:[0,0], pb:[0.0,0.0], pa:[0,0]},
     man:{op:[1,1], sc:[1,1], ev:[1,1], gv:[1,1], lpt:[4.0,4.0], ltt:[-41.2,-0.3],
          vpt:[0.09,0.09], vtt:[-39,0.5], cpt:[0.1,0.1], ctt:[-41,0],
          trv:[0,0], marvs:[0,0,0,0], mast:[0,0,0,0], sb:[4.0,4.0], q:[0,0], htr:0, bst:0, et:-41.5, eb:4.0},
     ct:[0,1,2,3].map(i => ({
-      p:50, s:50, bhd:1, g:0, sys:i%2, fl:96.9, pr:95, rho:582, mt:6110, vsuc:1, cin:1, lact:0,
+      p:50, s:50, mp:3055.5, ms:3055.5, bhd:1, g:0, sys:i%2, fl:96.9, pr:95, rho:582, mt:6111.0, vsuc:1, cin:1, lact:0,
       ts:-38.5, bs:-41.2, tv:-39.5, tl:-41.5, cr:0.0, hc:98.5, ig:1.4, o2:0.1, prg:0, fv:0,
       vr:[0,0,0,0,0,0], dp:[0,25,0,0,0,0,0], ds:[0,25,0,0,0,0,0]
     })),
-    comp:[[0,0],[0,0],[0,1],[0,1]],
+    comp:[[0,0,91,9.2],[0,0,91,9.2],[0,1,91,9.2],[0,1,91,9.2]],
     fgd:[0,1,2,3,4,5].map(z => [0.0, z<4?0.8:20.9, 0, 0, 0]),
-    wbt:[0,1,2,3,4,5,6,7,8,9].map(() => [45.0, 0]),
+    wbt:[0,1,2,3,4,5,6,7,8,9].map((_,j) => [45.0, 0, j<2?1:0, 0]),
     presets: PRESETS, sf_c: Array(20).fill(0), bm_c: Array(20).fill(0)
   };
+
+  function syncMass(t) {
+    const gr = GRADES[t.g];
+    t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
+    t.mp = +((t.p / 100) * 10500 * (t.rho / 1000)).toFixed(1);
+    t.ms = +((t.s / 100) * 10500 * (t.rho / 1000)).toFixed(1);
+    t.mt = +(t.mp + t.ms).toFixed(1);
+  }
+  S.ct.forEach(syncMass);
 
   function stepLocal(dtReal) {
     const dt = dtReal * S.spd; S.time = Math.round(S.time + dt);
@@ -197,8 +207,13 @@
       S.ct.forEach(t => { t.dp[0]=0; t.ds[0]=0; t.fv=0; });
       S.man.ev = [0,0]; S.man.op = [0,0];
     }
+    const swEff = Math.round(Math.max(58, Math.min(100, 100 - Math.max(0, S.sw - 15) * 1.35)));
     const flowSys = [0,0], hotSys = [false,false];
-    S.comp.forEach(c => { if (c[0]>0) { flowSys[c[1]] += 3.2; if (c[0]===2) hotSys[c[1]]=true; }});
+    S.comp.forEach(c => {
+      c[2] = c[0]===1 ? swEff : (c[0]===2 ? 100 : 0);
+      c[3] = +(6.5 + S.sw * 0.22).toFixed(1);
+      if (c[0]>0) { flowSys[c[1]] += 3.2 * (c[2]/100); if (c[0]===2) hotSys[c[1]]=true; }
+    });
 
     let sumW = 18650, sumMx = 18650 * -8.45, sumMy = 0, sumMz = 18650 * 13.8, sumFsm = 0;
     const lcgCt = [64.2, 22.8, -19.5, -61.0];
@@ -211,8 +226,8 @@
       t.fl = +Math.min(98, 98 * (rhoRef / t.rho)).toFixed(1);
 
       if (t.bhd && dt > 0) {
-        const d = (t.p - t.s) + S.heel * 0.4;
-        t.p = +(t.p - d*0.15).toFixed(1); t.s = +(t.s + d*0.15).toFixed(1);
+        const d = (t.mp - t.ms) + S.heel * 12.0;
+        t.mp = +(t.mp - d*0.15).toFixed(1); t.ms = +(t.ms + d*0.15).toFixed(1);
       }
       const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && S.man.gv[t.sys];
       [t.dp, t.ds].forEach((p, sd) => {
@@ -222,59 +237,67 @@
           p[3] = mOpen ? S.man.sb[t.sys] + 1.5 : 13.5;
           p[4] = Math.round(45 + (q/600)*115);
           if (dt > 0 && mOpen && S.man.op[t.sys]===1) {
-            if (sd===0) t.p = Math.max(0, +(t.p - (q/3600)*dt/105).toFixed(1));
-            else t.s = Math.max(0, +(t.s - (q/3600)*dt/105).toFixed(1));
+            const dmt = (q/3600)*dt*(t.rho/1000);
+            if (sd===0) t.mp = Math.max(0, +(t.mp - dmt).toFixed(1));
+            else t.ms = Math.max(0, +(t.ms - dmt).toFixed(1));
           }
           S.man.q[t.sys] += p[2];
         } else { p[2]=0; p[3]=0; p[4]=0; }
       });
       if (S.man.op[t.sys]===2 && mOpen && t.fv && dt > 0) {
-        t.p = Math.min(t.fl, +(t.p + 0.35*(dt/60)).toFixed(1));
-        t.s = Math.min(t.fl, +(t.s + 0.35*(dt/60)).toFixed(1));
-        S.man.q[t.sys] += 1200;
+        const dmt = (600/3600)*dt*(t.rho/1000);
+        t.mp += dmt; t.ms += dmt; S.man.q[t.sys] += 1200;
       }
 
+      // Ambient Air & Seawater Heat Ingress + Spray Cooling (Conserves Mass!)
+      if (dt > 0) {
+        const dtHr = dt / 3600;
+        t.ts = +(t.ts + (S.air - t.ts) * 0.008 * dtHr).toFixed(2);
+        t.bs = +(t.bs + (S.sw - t.bs) * 0.006 * dtHr).toFixed(2);
+      }
       const nOpen = t.vr.reduce((a,b)=>a+b, 0);
       t.lact = (t.vsuc && t.cin && nOpen > 0 && flowSys[t.sys] > 0) ? 1 : 0;
       if (t.lact && dt > 0) {
         const tSup = hotSys[t.sys] ? 68 : gr.tb - 1;
-        const rate = ((tSup - t.ts) * 0.12) * (dt / 3600);
+        const rate = ((tSup - t.ts) * 0.08 * (swEff/100)) * (dt / 3600);
         t.ts = +(t.ts + rate).toFixed(2); t.bs = +(t.bs + rate*0.85).toFixed(2);
         t.tv = +(t.tv + rate*1.1).toFixed(2); t.cr = +((rate / (dt/3600))).toFixed(2);
       } else { t.cr = 0.0; }
+
+      t.mt = +(t.mp + t.ms).toFixed(1);
+      t.p = +Math.min(98, (t.mp / (10500 * (t.rho/1000))) * 100).toFixed(1);
+      t.s = +Math.min(98, (t.ms / (10500 * (t.rho/1000))) * 100).toFixed(1);
 
       const pEq = Math.max(10, (Math.pow(10, gr.A - gr.B / (t.tl + 273.15 + gr.C)) - 1.013) * 1000);
       t.pr = Math.round(t.pr * 0.8 + pEq * 0.2);
       if (t.pr >= 250) { S.man.marvs[i] = 1; S.man.mast[i] = Math.round((t.pr-245)*80); }
       else S.man.marvs[i] = 0;
 
-      t.mt = Math.round(((t.p + t.s)/100) * 10500 * (t.rho/1000));
       sumW += t.mt; sumMx += t.mt * lcgCt[i];
-      sumMy += ((t.s - t.p)/100) * 10500 * (t.rho/1000) * 7.5;
+      sumMy += (t.ms - t.mp) * 7.5;
       sumMz += t.mt * (1.8 + ((t.p+t.s)/200)*10.2);
       if (t.p > 2 && t.p < 95) sumFsm += 1100;
     });
 
-    [0,1].forEach(s => {
-      const mOpen = S.man.sc[s] && S.man.ev[s] && S.man.gv[s];
-      if (!mOpen && dt > 0) S.man.lpt[s] = +(S.man.lpt[s] + 0.08*(dt/60)).toFixed(1);
-      else S.man.lpt[s] = S.man.sb[s];
-      if (S.man.lpt[s] >= 10.0) { S.man.trv[s]=1; S.man.mast[s] += 450; S.man.lpt[s]=10.2; }
-      else S.man.trv[s]=0;
+    // Ballast Pumps (Singular = 1250 m3/h max, Parallel = 2320 m3/h max, Branch = 650 m3/h max)
+    const nBp = S.bal.pr[0] + S.bal.pr[1];
+    const maxBpCap = nBp === 0 ? 0 : (nBp === 1 ? 1250 : 2320);
+    const openWbt = S.wbt.filter(w => w[2] === 1).length;
+    S.bal.q = (nBp > 0 && S.bal.op > 0 && openWbt > 0) ? Math.min(maxBpCap, openWbt * 650) : 0;
+    const qBr = openWbt > 0 ? Math.round(S.bal.q / openWbt) : 0;
+    [0,1].forEach(p => {
+      S.bal.pq[p] = S.bal.pr[p] ? Math.round(S.bal.q / Math.max(1, nBp)) : 0;
+      S.bal.pb[p] = S.bal.pr[p] ? +(3.4 - (S.bal.pq[p]/1250)*0.85).toFixed(2) : 0;
+      S.bal.pa[p] = S.bal.pr[p] ? Math.round(68 + (S.bal.pq[p]/1250)*112) : 0;
     });
 
-    S.wbt.forEach((w, j) => {
+    S.wbt.forEach((w) => {
+      w[3] = (w[2] && S.bal.q > 0) ? (S.bal.op===2 ? -qBr : qBr) : 0;
+      if (dt > 0 && w[3] !== 0) w[0] = +Math.max(0, Math.min(100, w[0] + ((w[3]/3600)*dt/25))).toFixed(1);
       w[1] = w[0] <= 45 ? 0 : (w[0] <= 70 ? 1 : 2);
       const wm = (w[0]/100) * 2500 * 1.025;
       sumW += wm; sumMz += wm * (w[1]===0 ? 2.0 : (w[1]===1 ? 7.5 : 14.5));
       sumFsm += (w[1]===1 ? 85 : 550);
-    });
-
-    S.fgd.forEach((z, idx) => {
-      if (z[3]) z[0] = Math.min(100, +(z[0] + 5).toFixed(1));
-      else z[0] = Math.max(0, +(z[0] - 5).toFixed(1));
-      z[4] = z[0] >= 30 ? 2 : (z[0] >= 10 ? 1 : 0);
-      if (z[4] === 2 && idx >= 4 && !S.esd) { S.esd = 1; S.cause = "FGD 30% LEL TRIP"; }
     });
 
     S.disp = Math.round(sumW);
@@ -288,24 +311,17 @@
     S.tf = +(S.tm + S.trim * 0.48).toFixed(2);
     S.ta = +(S.tm - S.trim * 0.52).toFixed(2);
     S.heel = +(Math.atan2(sumMy / sumW, S.gm) * (180/Math.PI)).toFixed(2);
-
-    for (let s = 0; s < 20; s++) {
-      const x = (s - 9.5) / 9.5;
-      S.bm_c[s] = +(Math.cos(x * Math.PI * 0.8) * (45 + (S.ct[0].p - S.ct[1].p)*0.6)).toFixed(1);
-      S.sf_c[s] = +(Math.sin(x * Math.PI) * 38).toFixed(1);
-    }
-    S.bm = +Math.max(...S.bm_c.map(Math.abs)).toFixed(1);
-    S.sf = +Math.max(...S.sf_c.map(Math.abs)).toFixed(1);
-    S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
   }
 
   function parseCmd(url) {
     const q = url.split('?')[1]; if (!q) return;
     const p = new URLSearchParams(q);
     if (p.has('spd')) S.spd = +p.get('spd');
-    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; }
+    if (p.has('air')) S.air = +p.get('air');
+    if (p.has('sw')) S.sw = +p.get('sw');
+    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; syncMass(S.ct[i]); }
     if (p.has('bhd')) { const i = +p.get('bhd'); S.ct[i].bhd = 1 - S.ct[i].bhd; }
-    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; }
+    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; syncMass(S.ct[i]); }
     if (p.has('sys')) { const i = +p.get('sys'); S.ct[i].sys = 1 - S.ct[i].sys; }
     if (p.has('vsuc')) { const i = +p.get('vsuc'); S.ct[i].vsuc = 1 - S.ct[i].vsuc; }
     if (p.has('cin')) { const i = +p.get('cin'); S.ct[i].cin = 1 - S.ct[i].cin; }
@@ -323,6 +339,10 @@
     if (p.has('csys')) { const c = +p.get('csys'); S.comp[c][1] = 1 - S.comp[c][1]; }
     if (p.has('xo')) { const x = +p.get('xo'); S.xo[x] = 1 - S.xo[x]; }
     if (p.has('wbt')) S.wbt[+p.get('wbt')][0] = +p.get('v');
+    if (p.has('bpr')) { const b = +p.get('bpr'); S.bal.pr[b] = 1 - S.bal.pr[b]; }
+    if (p.has('bop')) S.bal.op = +p.get('bop');
+    if (p.has('bxo')) S.bal.xo = 1 - S.bal.xo;
+    if (p.has('bvlv')) { const j = +p.get('bvlv'); S.wbt[j][2] = 1 - S.wbt[j][2]; }
     if (p.has('wtgt')) S.wtgt = +p.get('wtgt');
     if (p.has('leak')) { const z = +p.get('leak'); S.fgd[z][3] = 1 - S.fgd[z][3]; }
     if (p.has('esd')) {
@@ -342,13 +362,13 @@
           t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr;
           t.hc = pr.hc; t.ig = pr.ig; t.o2 = pr.o2; t.prg = pr.prg;
           t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv;
+          syncMass(t);
         });
         S.wbt.forEach(w => w[0] = pr.wbt);
       }
     }
   }
 
-  // Intercept fetch('/state'): Uses native C++ server if running, or falls back to standalone_sim.js!
   const origFetch = window.fetch;
   let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
   window.fetch = async function(url, opts) {
@@ -646,12 +666,12 @@ requestAnimationFrame(anim);
 const tripNames = ['OK', 'TRIP: DRY-RUN (<35A)', 'TRIP: OVERLOAD (>185A)', 'TRIP: NPSH CAVITATION'];
 const gShort = ['C3 PROPANE', 'C4 BUTANE', 'NH3 AMMONIA'];
 
-// --- VIEW 1-4: INSIDE CARGO TANK MIMIC (WITH MARVS -> MAST RISER) ---
+// --- VIEW 1-4: INSIDE CARGO TANK MIMIC (MASS-CONSERVING + AIR/SW HEAT INGRESS) ---
 function renderTankView(d) {
   const i = activeTank, t = d.ct[i], dp = t.dp, ds = t.ds, vr = t.vr;
   const marvsLift = d.man.marvs[i];
   document.getElementById('tkTitle').innerHTML =
-    `CT${i+1} [${gShort[t.g]}] | Mass:<b>${t.mt}t</b> | Dome:<span style="color:${t.pr>220?'#f44':'#0f0'}">${t.pr} mbarg</span> ${marvsLift?'🚨MARVS->MAST':''} | MaxFL:${t.fl}%`;
+    `CT${i+1} [${gShort[t.g]}] | Cargo Mass: <b>${t.mt} MT</b> (ρ=${t.rho} kg/m³) | Dome: <span style="color:${t.pr>220?'#f44':'#0f0'}">${t.pr} mbarg</span> ${marvsLift?'🚨MARVS':''} | MaxFL:${t.fl}%`;
 
   const pH = (t.p / 100) * 130, sH = (t.s / 100) * 130;
   const pCol = dp[0] ? (dp[5] ? '#ff0' : '#0f0') : (dp[6]>0 ? '#f33' : '#666');
@@ -663,7 +683,6 @@ function renderTankView(d) {
     <rect x="48" y="5" width="64" height="15" rx="2" fill="${t.vsuc?'#711':'#333'}" stroke="#f88" onclick="cmd('vsuc=${i}','valve_toggle')"/>
     <text x="80" y="15" fill="#fff" font-size="7.5" text-anchor="middle" onclick="cmd('vsuc=${i}','valve_toggle')">VAP SUC:${t.vsuc?'OPEN':'SHUT'}</text>
 
-    <!-- Tank MARVS Relief Valve -> Vent Mast Riser #${i+1} -->
     <line x1="175" y1="2" x2="175" y2="52" stroke="${marvsLift?'#f33':'#555'}" stroke-width="3"/>
     <rect x="138" y="5" width="74" height="15" rx="2" fill="${marvsLift?'#a00':'#222'}" stroke="#fa0"/>
     <text x="175" y="15" fill="#fff" font-size="7" text-anchor="middle">MARVS->MAST#${i+1}: ${marvsLift?'LIFTED!':'250mbar'}</text>
@@ -693,10 +712,12 @@ function renderTankView(d) {
     <line x1="265" y1="24" x2="265" y2="68" stroke="${vr[3]?flowCol:'#444'}" stroke-width="2"/>
     <line x1="295" y1="24" x2="295" y2="140" stroke="${vr[4]?flowCol:'#444'}" stroke-width="2"/>
     <line x1="322" y1="24" x2="322" y2="195" stroke="${vr[5]?(t.lact?'#fa0':'#650'):'#444'}" stroke-width="2"/>
+    ${(t.lact && vr[0]) ? '<path d="M115,68 L95,92 M115,68 L115,95 M115,68 L135,92" stroke="#0ff" stroke-dasharray="3,2"/>' : ''}
+    ${(t.lact && vr[3]) ? '<path d="M265,68 L245,92 M265,68 L265,95 M265,68 L285,92" stroke="#0ff" stroke-dasharray="3,2"/>' : ''}
 
     <g class="info-tag">
       <text x="190" y="45" fill="${t.lact?'#0f0':'#fa0'}" font-size="8" font-weight="bold" text-anchor="middle">
-        ${t.lact ? '⚡ CONDENSATE FLOW ACTIVE (950t STEEL: '+t.cr+'°C/hr)' : '⚠️ NO FLOW: ALIGN VAP SUC + COMP + COND IN + SPRAY/SPARGE'}
+        ${t.lact ? '⚡ SPRAY/SPARGE ACTIVE (dT/dt: '+t.cr+'°C/hr | Air:'+d.air+'°C SW:'+d.sw+'°C)' : '⚠️ NO FLOW: ALIGN VAP SUC + COMP + COND IN + SPRAY/SPARGE'}
       </text>
       <text x="115" y="108" fill="#ff0" font-size="8.5" text-anchor="middle">TT-TOP: ${t.ts}°C</text>
       <text x="115" y="122" fill="#fff" font-size="8.5" text-anchor="middle">TT-VAP: ${t.tv}°C</text>
@@ -704,13 +725,12 @@ function renderTankView(d) {
       <text x="115" y="162" fill="#0ff" font-size="10" font-weight="bold" text-anchor="middle">PORT: ${t.p}%</text>
       <text x="265" y="162" fill="#0ff" font-size="10" font-weight="bold" text-anchor="middle">STBD: ${t.s}%</text>
       <text x="190" y="222" fill="#fa0" font-size="8.5" text-anchor="middle">TT-BOT: ${t.bs}°C | TT-LIQ: ${t.tl}°C | P:${tripNames[dp[6]]}</text>
-    </g>
-  `;
+    </g>`;
 
   document.getElementById('tkControls').innerHTML = `
     <div class="card">
       <div class="row">
-        <b>GRADE IN CT${i+1}:</b>
+        <b>GRADE IN CT${i+1} (${t.mt} MT Conserved):</b>
         <button class="sm ${t.g===0?'open':''}" onclick="cmd('grade=${i}&g=0')">C3 PROPANE</button>
         <button class="sm ${t.g===1?'open':''}" onclick="cmd('grade=${i}&g=1')">C4 BUTANE</button>
         <button class="sm ${t.g===2?'open':''}" onclick="cmd('grade=${i}&g=2')">NH3 AMMONIA</button>
@@ -740,7 +760,7 @@ function renderTankView(d) {
     </div>`;
 }
 
-// --- VIEW 5: VAPOUR/CONDENSATE HEADERS (PT/TT) & 4 VENT MAST RISERS ---
+// --- VIEW 5: VAPOUR/CONDENSATE HEADERS & MAST RISERS ---
 function renderHeadersView(d) {
   const m = d.man;
   let branches = '';
@@ -748,14 +768,12 @@ function renderHeadersView(d) {
     const x = 58 + i * 86, t = d.ct[i], venting = m.mast[i] > 1.0;
     const vy = t.sys === 0 ? 55 : 80, cy = t.sys === 0 ? 120 : 145;
     branches += `
-      <!-- Vent Mast Riser #${i+1} at Top of Schematic -->
       <line x1="${x+18}" y1="8" x2="${x+18}" y2="170" stroke="${venting?'#f44':'#555'}" stroke-width="${venting?3:1.5}"/>
       <rect x="${x-6}" y="2" width="48" height="16" rx="2" fill="${venting?'#a00':'#123'}" stroke="${venting?'#ff0':'#08a'}"/>
       <text x="${x+18}" y="13" fill="#fff" font-size="7" text-anchor="middle">MAST#${i+1}:${m.mast[i]}kg/h</text>
-
       <rect x="${x-32}" y="170" width="64" height="56" rx="4" fill="#08182c" stroke="#28f" onclick="setView(${i+1})"/>
       <text x="${x}" y="185" fill="#fff" font-size="9" font-weight="bold" text-anchor="middle">CT${i+1} (S${t.sys+1})</text>
-      <text x="${x}" y="198" fill="#0ff" font-size="8" text-anchor="middle">PT: ${t.pr} mbarg</text>
+      <text x="${x}" y="198" fill="#0ff" font-size="8" text-anchor="middle">${t.mt} MT | ${t.pr}mbar</text>
       <text x="${x}" y="211" fill="${t.lact?'#0f0':'#fa0'}" font-size="7.5" text-anchor="middle">${t.lact?'FLOW ON':'NO FLOW'}</text>
       <line x1="${x-12}" y1="${vy}" x2="${x-12}" y2="170" stroke="${t.vsuc?'#f55':'#444'}" stroke-width="2.5" stroke-dasharray="3,2"/>
       <line x1="${x+2}" y1="${cy}" x2="${x+2}" y2="170" stroke="${t.lact?'#0f0':'#444'}" stroke-width="2.5"/>`;
@@ -782,13 +800,15 @@ function renderHeadersView(d) {
     </div>`;
 }
 
-// --- VIEW 6: SHORE MANIFOLD FLANGES, ESD/GATE VALVES, LINE PT/TT, TRV & 8 PUMPS ---
+// --- VIEW 6: SHORE MANIFOLD FLANGES, PT/TT, TRV & 8 DEEPWELL PUMPS ---
 function renderPumpsView(d) {
   const m = d.man;
   const s1Open = m.sc[0] && m.ev[0] && m.gv[0], s2Open = m.sc[1] && m.ev[1] && m.gv[1];
+  const totCargo = (d.ct[0].mt + d.ct[1].mt + d.ct[2].mt + d.ct[3].mt).toFixed(1);
   document.getElementById('draftBanner').innerHTML =
-    `<div class="row"><b>DRAFTS:</b> <span>Tf:<b>${d.tf}m</b></span> | <span>Tm:<b>${d.tm}m</b></span> | <span>Ta:<b>${d.ta}m</b></span> | ` +
-    `<span>LIQ S1: <b>PT=${m.lpt[0]}bar TT=${m.ltt[0]}°C</b> ${m.trv[0]?'<span style="color:#f44">🚨TRV->MAST#1</span>':''}</span></div>`;
+    `<div class="row"><b>DRAFTS:</b> <span>Tf:<b>${d.tf}m</b> Tm:<b>${d.tm}m</b> Ta:<b>${d.ta}m</b></span> | ` +
+    `<span>TOTAL CARGO: <b style="color:#0f0">${totCargo} MT</b></span> | ` +
+    `<span>LIQ S1: <b>${m.lpt[0]}bar / ${m.ltt[0]}°C</b> ${m.trv[0]?'<span style="color:#f44">🚨TRV->MAST#1</span>':''}</span></div>`;
 
   let svgPumps = '', ctrlRows = '';
   for (let i = 0; i < 4; i++) {
@@ -808,7 +828,7 @@ function renderPumpsView(d) {
 
     ctrlRows += `<div class="card">
       <div class="row">
-        <b>CT${i+1} (${t.mt}t):</b>
+        <b>CT${i+1} (${t.mt} MT):</b>
         <button class="sm ${t.g===0?'open':''}" onclick="cmd('grade=${i}&g=0')">C3</button>
         <button class="sm ${t.g===1?'open':''}" onclick="cmd('grade=${i}&g=1')">C4</button>
         <button class="sm ${t.g===2?'open':''}" onclick="cmd('grade=${i}&g=2')">NH3</button>
@@ -826,19 +846,16 @@ function renderPumpsView(d) {
   }
 
   document.getElementById('pmpSvg').innerHTML = `
-    <!-- Shore Manifold Flange, ESD Valve & Gate Valve Visuals on Left -->
     <rect x="4" y="28" width="38" height="22" rx="2" fill="${s1Open?'#062':'#611'}" stroke="#fff" onclick="cmd('sconn=0')"/>
     <text x="23" y="42" fill="#fff" font-size="7" text-anchor="middle">${m.sc[0]?'S1 CONN':'S1 DISC'}</text>
     <rect x="4" y="58" width="38" height="22" rx="2" fill="${s2Open?'#062':'#611'}" stroke="#fff" onclick="cmd('sconn=1')"/>
     <text x="23" y="72" fill="#fff" font-size="7" text-anchor="middle">${m.sc[1]?'S2 CONN':'S2 DISC'}</text>
-
     <g class="info-tag">
       <text x="48" y="20" fill="#0fa" font-size="8" font-weight="bold">LIQ S1: PT=${m.lpt[0]}bar TT=${m.ltt[0]}°C (${m.q[0]}m³/h) ${m.trv[0]?'[TRV LIFT->MAST#1!]':''}</text>
       <text x="48" y="96" fill="#0af" font-size="8" font-weight="bold">LIQ S2: PT=${m.lpt[1]}bar TT=${m.ltt[1]}°C (${m.q[1]}m³/h) ${m.trv[1]?'[TRV LIFT->MAST#2!]':''}</text>
     </g>
     <line x1="42" y1="44" x2="310" y2="44" stroke="${s1Open?'#0fa':'#f44'}" stroke-width="3.5"/>
     <line x1="42" y1="74" x2="310" y2="74" stroke="${s2Open?'#0af':'#f44'}" stroke-width="3.5"/>
-
     <rect x="312" y="26" width="62" height="34" rx="4" fill="${m.htr?'#730':'#081828'}" stroke="#fa0" onclick="cmd('htr=1')"/>
     <text x="343" y="41" fill="#fff" font-size="7.5" text-anchor="middle">SW HEATER</text>
     <text x="343" y="53" fill="#fa0" font-size="7.5" text-anchor="middle">${m.et}°C</text>
@@ -850,43 +867,44 @@ function renderPumpsView(d) {
   document.getElementById('pmpControls').innerHTML = `
     <div class="card">
       <div class="row">
-        <b>SYS 1 MANIFOLD LINEUP:</b>
-        <button class="sm ${m.sc[0]?'open':'shut'}" onclick="cmd('sconn=0')">SHORE ARM:${m.sc[0]?'CONN':'DISC'}</button>
-        <button class="sm ${m.ev[0]?'open':'shut'}" onclick="cmd('mesd=0')">ESD VLV:${m.ev[0]?'OPEN':'SHUT'}</button>
-        <button class="sm ${m.gv[0]?'open':'shut'}" onclick="cmd('mgate=0')">GATE VLV:${m.gv[0]?'OPEN':'SHUT'}</button>
+        <b>SYS 1 MANIFOLD:</b>
+        <button class="sm ${m.sc[0]?'open':'shut'}" onclick="cmd('sconn=0')">ARM:${m.sc[0]?'CONN':'DISC'}</button>
+        <button class="sm ${m.ev[0]?'open':'shut'}" onclick="cmd('mesd=0')">ESD:${m.ev[0]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.gv[0]?'open':'shut'}" onclick="cmd('mgate=0')">GATE:${m.gv[0]?'OPEN':'SHUT'}</button>
         <button class="sm ${m.op[0]===1?'open':''}" onclick="cmd('mop=0&m=1')">DISCH</button>
         <button class="sm ${m.op[0]===2?'hot':''}" onclick="cmd('mop=0&m=2')">LOAD</button>
       </div>
       <div class="row">
-        <b>SYS 2 MANIFOLD LINEUP:</b>
-        <button class="sm ${m.sc[1]?'open':'shut'}" onclick="cmd('sconn=1')">SHORE ARM:${m.sc[1]?'CONN':'DISC'}</button>
-        <button class="sm ${m.ev[1]?'open':'shut'}" onclick="cmd('mesd=1')">ESD VLV:${m.ev[1]?'OPEN':'SHUT'}</button>
-        <button class="sm ${m.gv[1]?'open':'shut'}" onclick="cmd('mgate=1')">GATE VLV:${m.gv[1]?'OPEN':'SHUT'}</button>
+        <b>SYS 2 MANIFOLD:</b>
+        <button class="sm ${m.sc[1]?'open':'shut'}" onclick="cmd('sconn=1')">ARM:${m.sc[1]?'CONN':'DISC'}</button>
+        <button class="sm ${m.ev[1]?'open':'shut'}" onclick="cmd('mesd=1')">ESD:${m.ev[1]?'OPEN':'SHUT'}</button>
+        <button class="sm ${m.gv[1]?'open':'shut'}" onclick="cmd('mgate=1')">GATE:${m.gv[1]?'OPEN':'SHUT'}</button>
         <button class="sm ${m.op[1]===1?'open':''}" onclick="cmd('mop=1&m=1')">DISCH</button>
         <button class="sm ${m.op[1]===2?'hot':''}" onclick="cmd('mop=1&m=2')">LOAD</button>
       </div>
     </div>${ctrlRows}`;
 }
 
-// --- VIEW 7: COMPRESSOR ROOM ---
+// --- VIEW 7: COMPRESSOR ROOM + AMBIENT AIR & SEAWATER COOLING EFFICIENCY ---
 function renderCompView(d) {
   let units = '', cards = '';
   const mNames = ['STOPPED', 'RELIQ MODE', 'HOT GAS'];
   for (let c = 0; c < 4; c++) {
-    const x = 52 + c * 90, m = d.comp[c][0], sys = d.comp[c][1];
+    const x = 52 + c * 90, m = d.comp[c][0], sys = d.comp[c][1], eff = d.comp[c][2], cbar = d.comp[c][3];
     const col = m === 1 ? '#0f8' : (m === 2 ? '#fa0' : '#555');
     units += `
-      <rect x="${x-32}" y="26" width="64" height="55" rx="5" fill="#091a2e" stroke="${col}" stroke-width="2"/>
-      <text x="${x}" y="42" fill="#fff" font-size="9" font-weight="bold" text-anchor="middle">COMP #${c+1}</text>
-      <text x="${x}" y="55" fill="${col}" font-size="8" text-anchor="middle">${mNames[m]}</text>
-      <text x="${x}" y="68" fill="#0ff" font-size="8" text-anchor="middle">SYS ${sys+1}</text>
-      <line x1="${x}" y1="81" x2="${x}" y2="122" stroke="${col}" stroke-width="3"/>
-      <circle cx="${x}" cy="102" r="5" fill="#ff0"/>
-      <rect x="${x-26}" y="122" width="52" height="40" rx="4" fill="#071320" stroke="#08a"/>
+      <rect x="${x-34}" y="26" width="68" height="62" rx="5" fill="#091a2e" stroke="${col}" stroke-width="2"/>
+      <text x="${x}" y="40" fill="#fff" font-size="8.5" font-weight="bold" text-anchor="middle">COMP #${c+1} (S${sys+1})</text>
+      <text x="${x}" y="52" fill="${col}" font-size="8" text-anchor="middle">${mNames[m]}</text>
+      <text x="${x}" y="64" fill="#0ff" font-size="7.5" text-anchor="middle">SW Eff: ${eff}%</text>
+      <text x="${x}" y="76" fill="#fa0" font-size="7.5" text-anchor="middle">Cond: ${cbar} bar</text>
+      <line x1="${x}" y1="88" x2="${x}" y2="124" stroke="${col}" stroke-width="3"/>
+      <circle cx="${x}" cy="105" r="5" fill="#ff0"/>
+      <rect x="${x-26}" y="124" width="52" height="38" rx="4" fill="#071320" stroke="#08a"/>
       <text x="${x}" y="140" fill="#0ff" font-size="8" text-anchor="middle">MOTOR #${c+1}</text>
       <text x="${x}" y="153" fill="#8f8" font-size="8" text-anchor="middle">${m>0?'142A':'0A'}</text>`;
     cards += `<div class="card">
-      <div><b>COMP #${c+1} (SYS ${sys+1})</b></div>
+      <div><b>COMP #${c+1} (SYS ${sys+1} | Eff: ${eff}%)</b></div>
       <div class="row" style="margin-top:4px;">
         <button class="sm ${m===0?'shut':''}" onclick="cmd('comp=${c}&m=0')">STOP</button>
         <button class="sm ${m===1?'open':''}" onclick="cmd('comp=${c}&m=1','pump_start')">RELIQ</button>
@@ -896,44 +914,97 @@ function renderCompView(d) {
     </div>`;
   }
   document.getElementById('compSvg').innerHTML = `
-    <text x="190" y="15" fill="#0ff" font-size="9" font-weight="bold" text-anchor="middle">COMPRESSOR ROOM (VENT: ${d.cvent?'RUNNING':'STOPPED'})</text>
-    <line x1="10" y1="102" x2="370" y2="102" stroke="#f44" stroke-width="3" stroke-dasharray="6,3"/>
-    <text x="190" y="180" fill="#0ff" font-size="9" font-weight="bold" text-anchor="middle">ELECTRIC MOTOR ROOM (+dP: ${d.mdp} Pa)</text>${units}`;
-  document.getElementById('compControls').innerHTML = cards;
+    <text x="190" y="15" fill="#0ff" font-size="8.5" font-weight="bold" text-anchor="middle">COMPRESSOR ROOM | AIR: ${d.air}°C | SEAWATER COOLING: ${d.sw}°C</text>
+    <line x1="10" y1="105" x2="370" y2="105" stroke="#f44" stroke-width="3" stroke-dasharray="6,3"/>
+    <text x="190" y="182" fill="#0ff" font-size="8.5" font-weight="bold" text-anchor="middle">ELECTRIC MOTOR ROOM (+dP: ${d.mdp} Pa)</text>${units}`;
+
+  document.getElementById('compControls').innerHTML = `
+    <div class="card" style="grid-column: span 2; border-color:#0ff;">
+      <div class="row">
+        <b>AMBIENT AIR TEMP (${d.air}°C — Deck Heat Ingress):</b>
+        <input type="range" min="-10" max="45" step="1" value="${d.air}" onchange="cmd('air='+this.value)">
+      </div>
+      <div class="row">
+        <b>SEAWATER TEMP (${d.sw}°C — Condenser Cooling Efficiency):</b>
+        <input type="range" min="0" max="36" step="1" value="${d.sw}" onchange="cmd('sw='+this.value)">
+      </div>
+    </div>` + cards;
 }
 
-// --- VIEW 8: BALLAST WBT ---
+// --- VIEW 8: BALLAST PUMPS (SINGULAR vs PARALLEL), RING MAIN & 10 WBT BRANCH VALVES ---
 function renderBallastView(d) {
-  const pair = d.wtgt, pPct = d.wbt[pair*2][0], sPct = d.wbt[pair*2+1][0];
-  const pH = (pPct / 100) * 125, sH = (sPct / 100) * 125;
+  const pair = d.wtgt, b = d.bal;
+  const pPct = d.wbt[pair*2][0], sPct = d.wbt[pair*2+1][0];
+  const pH = (pPct / 100) * 110, sH = (sPct / 100) * 110;
+  const nRun = b.pr[0] + b.pr[1];
+  const modeCap = nRun === 0 ? '0 m³/h (STOPPED)' : (nRun === 1 ? 'SINGULAR (Max 1,250 m³/h)' : 'PARALLEL (Max 2,320 m³/h)');
+
   document.getElementById('wbtSvg').innerHTML = `
     <defs>
-      <clipPath id="wP"><polygon points="30,25 95,25 95,65 58,65 58,120 185,120 185,150 30,150"/></clipPath>
-      <clipPath id="wS"><polygon points="350,25 285,25 285,65 322,65 322,120 195,120 195,150 350,150"/></clipPath>
+      <clipPath id="wP"><polygon points="20,20 75,20 75,54 44,54 44,102 145,102 145,130 20,130"/></clipPath>
+      <clipPath id="wS"><polygon points="270,20 215,20 215,54 246,54 246,102 150,102 150,130 270,130"/></clipPath>
     </defs>
-    <rect x="30" y="${150-pH}" width="160" height="${pH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wP)"/>
-    <rect x="190" y="${150-sH}" width="160" height="${sH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wS)"/>
-    <polygon points="30,25 95,25 95,65 58,65 58,120 185,120 185,150 30,150" fill="none" stroke="#0cf" stroke-width="2"/>
-    <polygon points="350,25 285,25 285,65 322,65 322,120 195,120 195,150 350,150" fill="none" stroke="#0cf" stroke-width="2"/>
-    <text x="110" y="142" fill="#fff" font-size="9">PORT: ${pPct}%</text>
-    <text x="235" y="142" fill="#fff" font-size="9">STBD: ${sPct}%</text>`;
+    <rect x="20" y="${130-pH}" width="130" height="${pH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wP)"/>
+    <rect x="148" y="${130-sH}" width="130" height="${sH}" fill="rgba(0,150,255,0.65)" clip-path="url(#wS)"/>
+    <polygon points="20,20 75,20 75,54 44,54 44,102 145,102 145,130 20,130" fill="none" stroke="#0cf" stroke-width="2"/>
+    <polygon points="270,20 215,20 215,54 246,54 246,102 150,102 150,130 270,130" fill="none" stroke="#0cf" stroke-width="2"/>
+    <text x="82" y="122" fill="#fff" font-size="8.5" text-anchor="middle">PORT:${pPct}% (${d.wbt[pair*2][3]}m³/h)</text>
+    <text x="208" y="122" fill="#fff" font-size="8.5" text-anchor="middle">STBD:${sPct}% (${d.wbt[pair*2+1][3]}m³/h)</text>
+
+    <!-- Ballast Pump #1 & Pump #2 Singular/Parallel Schematic on Right -->
+    <rect x="282" y="22" width="92" height="46" rx="4" fill="#071828" stroke="${b.pr[0]?'#0f0':'#555'}" stroke-width="2" onclick="cmd('bpr=0','pump_start')"/>
+    <text x="328" y="36" fill="#fff" font-size="8" font-weight="bold" text-anchor="middle">WBT PUMP #1</text>
+    <text x="328" y="48" fill="#0f0" font-size="8" text-anchor="middle">${b.pq[0]} m³/h | ${b.pb[0]}bar</text>
+    <text x="328" y="60" fill="#fa0" font-size="7.5" text-anchor="middle">${b.pa[0]} Amps</text>
+
+    <rect x="282" y="80" width="92" height="46" rx="4" fill="#071828" stroke="${b.pr[1]?'#0f0':'#555'}" stroke-width="2" onclick="cmd('bpr=1','pump_start')"/>
+    <text x="328" y="94" fill="#fff" font-size="8" font-weight="bold" text-anchor="middle">WBT PUMP #2</text>
+    <text x="328" y="106" fill="#0f0" font-size="8" text-anchor="middle">${b.pq[1]} m³/h | ${b.pb[1]}bar</text>
+    <text x="328" y="118" fill="#fa0" font-size="7.5" text-anchor="middle">${b.pa[1]} Amps</text>
+
+    <!-- Ring Main & Crossover Line -->
+    <line x1="20" y1="152" x2="365" y2="152" stroke="${nRun>0?'#0ff':'#444'}" stroke-width="3"/>
+    <text x="190" y="170" fill="#0ff" font-size="8" font-weight="bold" text-anchor="middle">TOTAL BALLAST LINE FLOW: ${b.q} m³/hr [${modeCap}]</text>
+  `;
+
   const wNames = ['WBT1P','WBT1S','WBT2P','WBT2S','WBT3P','WBT3S','WBT4P','WBT4S','FPK','APT'];
-  let sliders = '';
+  let rows = '';
   for (let j = 0; j < 10; j += 2) {
-    sliders += `<div class="row"><span style="width:75px">${wNames[j]}:${d.wbt[j][0]}%</span>` +
-      `<input type="range" min="0" max="100" value="${d.wbt[j][0]}" onchange="cmd('wbt=${j}&v='+this.value)">` +
-      `<input type="range" min="0" max="100" value="${d.wbt[j+1][0]}" onchange="cmd('wbt=${j+1}&v='+this.value)">` +
-      `<span style="width:75px;text-align:right">${wNames[j+1]}:${d.wbt[j+1][0]}%</span></div>`;
+    const wP = d.wbt[j], wS = d.wbt[j+1];
+    rows += `<div class="row">
+      <button class="sm ${wP[2]?'open':'shut'}" onclick="cmd('bvlv=${j}')">${wNames[j]} VLV:${wP[2]?'OPEN':'SHUT'}</button>
+      <span style="width:82px">${wP[0]}% (${wP[3]}m³/h)</span>
+      <input type="range" min="0" max="100" value="${wP[0]}" onchange="cmd('wbt=${j}&v='+this.value)">
+      <input type="range" min="0" max="100" value="${wS[0]}" onchange="cmd('wbt=${j+1}&v='+this.value)">
+      <span style="width:82px;text-align:right">${wS[0]}% (${wS[3]}m³/h)</span>
+      <button class="sm ${wS[2]?'open':'shut'}" onclick="cmd('bvlv=${j+1}')">${wNames[j+1]} VLV:${wS[2]?'OPEN':'SHUT'}</button>
+    </div>`;
   }
   document.getElementById('wbtControls').innerHTML = `
     <div class="card">
       <div class="row">
-        <button class="sm" onclick="cmd('wtgt=0')">WBT1</button><button class="sm" onclick="cmd('wtgt=1')">WBT2</button>
-        <button class="sm" onclick="cmd('wtgt=2')">WBT3</button><button class="sm" onclick="cmd('wtgt=3')">WBT4</button>
-        <button class="sm" onclick="cmd('bp=0&m=1','pump_start');cmd('bp=1&m=1')">BALLAST IN</button>
-        <button class="sm" onclick="cmd('bp=0&m=2','pump_start');cmd('bp=1&m=2')">DEBALLAST</button>
-        <button class="sm shut" onclick="cmd('bp=0&m=0');cmd('bp=1&m=0')">STOP</button>
-      </div>${sliders}
+        <b>PUMPS (1,250 m³/h each):</b>
+        <button class="sm ${b.pr[0]?'open':'shut'}" onclick="cmd('bpr=0','pump_start')">PUMP #1:${b.pr[0]?'RUN':'STOP'}</button>
+        <button class="sm ${b.pr[1]?'open':'shut'}" onclick="cmd('bpr=1','pump_start')">PUMP #2:${b.pr[1]?'RUN':'STOP'}</button>
+        <button class="sm ${b.xo?'open':'shut'}" onclick="cmd('bxo=1')">RING X-OVER:${b.xo?'OPEN':'SHUT'}</button>
+      </div>
+      <div class="row">
+        <b>LINEUP MODE:</b>
+        <button class="sm ${b.op===1?'open':''}" onclick="cmd('bop=1')">BALLAST IN</button>
+        <button class="sm ${b.op===2?'open':''}" onclick="cmd('bop=2')">DEBALLAST OUT</button>
+        <button class="sm ${b.op===3?'hot':''}" onclick="cmd('bop=3')">HEEL P→S</button>
+        <button class="sm ${b.op===4?'hot':''}" onclick="cmd('bop=4')">HEEL S→P</button>
+        <button class="sm ${b.op===0?'shut':''}" onclick="cmd('bop=0')">HOLD</button>
+      </div>
+      <div class="row">
+        <span>Inspect Section:</span>
+        <button class="sm ${pair===0?'open':''}" onclick="cmd('wtgt=0')">WBT1</button>
+        <button class="sm ${pair===1?'open':''}" onclick="cmd('wtgt=1')">WBT2</button>
+        <button class="sm ${pair===2?'open':''}" onclick="cmd('wtgt=2')">WBT3</button>
+        <button class="sm ${pair===3?'open':''}" onclick="cmd('wtgt=3')">WBT4</button>
+        <button class="sm ${pair===4?'open':''}" onclick="cmd('wtgt=4')">FPK/APT</button>
+      </div>
+      ${rows}
     </div>`;
 }
 
@@ -989,11 +1060,12 @@ function drawStationCurve(canvasId, arr, peakVal) {
 }
 
 function renderLoadicatorView(d) {
+  const totCargo = (d.ct[0].mt + d.ct[1].mt + d.ct[2].mt + d.ct[3].mt).toFixed(1);
   document.getElementById('loadTables').innerHTML = `
     <div class="grid2">
       <div class="card">
-        <b>DRAFTS & HYDROSTATICS</b>
-        <div class="row"><span>Displacement (Δ):</span><b>${d.disp} MT</b></div>
+        <b>DRAFTS & DISPLACEMENT</b>
+        <div class="row"><span>Displacement (Δ) / Cargo:</span><b>${d.disp} MT / ${totCargo} MT</b></div>
         <div class="row"><span>Tf / Tm / Ta:</span><b>${d.tf}m / ${d.tm}m / ${d.ta}m</b></div>
         <div class="row"><span>Trim:</span><b>${d.trim>0?'+':''}${d.trim} m</b></div>
         <div class="row"><span>TPC / MCTC:</span><b>${d.tpc} t/cm | ${d.mctc}</b></div>
@@ -1010,7 +1082,7 @@ function renderLoadicatorView(d) {
   drawStationCurve('sfCurveCv', d.sf_c, d.sf);
 }
 
-// --- VIEW 11: PHASE 6 PRESETS ENGINE (PRE-DD, POST-DD, CARGO OPS & CUSTOM SAVER) ---
+// --- VIEW 11: PRESETS ENGINE ---
 function renderPresetsView(d) {
   let html = `<div class="card" style="border-color:#0f0">
     <div class="row">
@@ -1052,8 +1124,8 @@ async function sync(q = '', sfx = '') {
   const anyVent = d.man.mast.some(v => v > 1.0);
   const heelStr = d.heel < -0.05 ? `${Math.abs(d.heel).toFixed(1)}°P` : (d.heel > 0.05 ? `${d.heel.toFixed(1)}°S` : '0.0°');
   document.getElementById('hudTop').innerHTML =
-    `<b>${d.spd}x</b> | <b>Tf:${d.tf}m Tm:${d.tm}m Ta:${d.ta}m</b> | List:<b>${heelStr}</b> | GM0:<b>${d.gm}m</b> | ` +
-    `${anyVent?'<span style="color:#fa0;font-weight:bold">💨MAST VENTING</span> ':''}` +
+    `<b>${d.spd}x</b> | <b>Tf:${d.tf}m Tm:${d.tm}m Ta:${d.ta}m</b> | List:<b>${heelStr}</b> | Air:${d.air}°C SW:${d.sw}°C | ` +
+    `${anyVent?'<span style="color:#fa0;font-weight:bold">💨MAST VENT</span> ':''}` +
     `${d.esd?'<span style="color:#f44;font-weight:bold">🚨ESD-1</span>':'OK'}`;
   window.renderActiveView(d);
 }

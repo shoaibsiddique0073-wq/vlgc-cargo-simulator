@@ -1,4 +1,4 @@
-// Automatic Serverless Physics Fallback for GitHub Pages & WhatsApp Sharing
+// Automatic Serverless Physics Fallback v1.1 (Ballast Network, Air/SW Thermo & Mass Conservation)
 (function() {
   const GRADES = [
     {mw:44.097, tb:-42.1, A:3.92828, B:803.997, C:-26.11, r15:507.5, a:0.00162, tr:-36.8},
@@ -21,23 +21,33 @@
   ];
 
   const S = {
-    spd:1, time:0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
+    spd:1, time:0, air:25.0, sw:22.0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
     tpc:68.2, mctc:995, lcb:1.9, lcf:-2.6, lcg:1.5, kmt:16.9, kg:11.8, fsc:1.2, gm:3.9,
-    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, bp:[0,0], xo:[0,0,0],
+    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, xo:[0,0,0],
     esd:0, cause:"SYSTEM NORMAL", mdp:55, cvent:1, floop:1,
+    bal:{pr:[0,0], op:1, xo:1, q:0, pq:[0,0], pb:[0.0,0.0], pa:[0,0]},
     man:{op:[1,1], sc:[1,1], ev:[1,1], gv:[1,1], lpt:[4.0,4.0], ltt:[-41.2,-0.3],
          vpt:[0.09,0.09], vtt:[-39,0.5], cpt:[0.1,0.1], ctt:[-41,0],
          trv:[0,0], marvs:[0,0,0,0], mast:[0,0,0,0], sb:[4.0,4.0], q:[0,0], htr:0, bst:0, et:-41.5, eb:4.0},
     ct:[0,1,2,3].map(i => ({
-      p:50, s:50, bhd:1, g:0, sys:i%2, fl:96.9, pr:95, rho:582, mt:6110, vsuc:1, cin:1, lact:0,
+      p:50, s:50, mp:3055.5, ms:3055.5, bhd:1, g:0, sys:i%2, fl:96.9, pr:95, rho:582, mt:6111.0, vsuc:1, cin:1, lact:0,
       ts:-38.5, bs:-41.2, tv:-39.5, tl:-41.5, cr:0.0, hc:98.5, ig:1.4, o2:0.1, prg:0, fv:0,
       vr:[0,0,0,0,0,0], dp:[0,25,0,0,0,0,0], ds:[0,25,0,0,0,0,0]
     })),
-    comp:[[0,0],[0,0],[0,1],[0,1]],
+    comp:[[0,0,91,9.2],[0,0,91,9.2],[0,1,91,9.2],[0,1,91,9.2]],
     fgd:[0,1,2,3,4,5].map(z => [0.0, z<4?0.8:20.9, 0, 0, 0]),
-    wbt:[0,1,2,3,4,5,6,7,8,9].map(() => [45.0, 0]),
+    wbt:[0,1,2,3,4,5,6,7,8,9].map((_,j) => [45.0, 0, j<2?1:0, 0]),
     presets: PRESETS, sf_c: Array(20).fill(0), bm_c: Array(20).fill(0)
   };
+
+  function syncMass(t) {
+    const gr = GRADES[t.g];
+    t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
+    t.mp = +((t.p / 100) * 10500 * (t.rho / 1000)).toFixed(1);
+    t.ms = +((t.s / 100) * 10500 * (t.rho / 1000)).toFixed(1);
+    t.mt = +(t.mp + t.ms).toFixed(1);
+  }
+  S.ct.forEach(syncMass);
 
   function stepLocal(dtReal) {
     const dt = dtReal * S.spd; S.time = Math.round(S.time + dt);
@@ -46,8 +56,13 @@
       S.ct.forEach(t => { t.dp[0]=0; t.ds[0]=0; t.fv=0; });
       S.man.ev = [0,0]; S.man.op = [0,0];
     }
+    const swEff = Math.round(Math.max(58, Math.min(100, 100 - Math.max(0, S.sw - 15) * 1.35)));
     const flowSys = [0,0], hotSys = [false,false];
-    S.comp.forEach(c => { if (c[0]>0) { flowSys[c[1]] += 3.2; if (c[0]===2) hotSys[c[1]]=true; }});
+    S.comp.forEach(c => {
+      c[2] = c[0]===1 ? swEff : (c[0]===2 ? 100 : 0);
+      c[3] = +(6.5 + S.sw * 0.22).toFixed(1);
+      if (c[0]>0) { flowSys[c[1]] += 3.2 * (c[2]/100); if (c[0]===2) hotSys[c[1]]=true; }
+    });
 
     let sumW = 18650, sumMx = 18650 * -8.45, sumMy = 0, sumMz = 18650 * 13.8, sumFsm = 0;
     const lcgCt = [64.2, 22.8, -19.5, -61.0];
@@ -60,8 +75,8 @@
       t.fl = +Math.min(98, 98 * (rhoRef / t.rho)).toFixed(1);
 
       if (t.bhd && dt > 0) {
-        const d = (t.p - t.s) + S.heel * 0.4;
-        t.p = +(t.p - d*0.15).toFixed(1); t.s = +(t.s + d*0.15).toFixed(1);
+        const d = (t.mp - t.ms) + S.heel * 12.0;
+        t.mp = +(t.mp - d*0.15).toFixed(1); t.ms = +(t.ms + d*0.15).toFixed(1);
       }
       const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && S.man.gv[t.sys];
       [t.dp, t.ds].forEach((p, sd) => {
@@ -71,59 +86,67 @@
           p[3] = mOpen ? S.man.sb[t.sys] + 1.5 : 13.5;
           p[4] = Math.round(45 + (q/600)*115);
           if (dt > 0 && mOpen && S.man.op[t.sys]===1) {
-            if (sd===0) t.p = Math.max(0, +(t.p - (q/3600)*dt/105).toFixed(1));
-            else t.s = Math.max(0, +(t.s - (q/3600)*dt/105).toFixed(1));
+            const dmt = (q/3600)*dt*(t.rho/1000);
+            if (sd===0) t.mp = Math.max(0, +(t.mp - dmt).toFixed(1));
+            else t.ms = Math.max(0, +(t.ms - dmt).toFixed(1));
           }
           S.man.q[t.sys] += p[2];
         } else { p[2]=0; p[3]=0; p[4]=0; }
       });
       if (S.man.op[t.sys]===2 && mOpen && t.fv && dt > 0) {
-        t.p = Math.min(t.fl, +(t.p + 0.35*(dt/60)).toFixed(1));
-        t.s = Math.min(t.fl, +(t.s + 0.35*(dt/60)).toFixed(1));
-        S.man.q[t.sys] += 1200;
+        const dmt = (600/3600)*dt*(t.rho/1000);
+        t.mp += dmt; t.ms += dmt; S.man.q[t.sys] += 1200;
       }
 
+      // Ambient Air & Seawater Heat Ingress + Spray Cooling (Conserves Mass!)
+      if (dt > 0) {
+        const dtHr = dt / 3600;
+        t.ts = +(t.ts + (S.air - t.ts) * 0.008 * dtHr).toFixed(2);
+        t.bs = +(t.bs + (S.sw - t.bs) * 0.006 * dtHr).toFixed(2);
+      }
       const nOpen = t.vr.reduce((a,b)=>a+b, 0);
       t.lact = (t.vsuc && t.cin && nOpen > 0 && flowSys[t.sys] > 0) ? 1 : 0;
       if (t.lact && dt > 0) {
         const tSup = hotSys[t.sys] ? 68 : gr.tb - 1;
-        const rate = ((tSup - t.ts) * 0.12) * (dt / 3600);
+        const rate = ((tSup - t.ts) * 0.08 * (swEff/100)) * (dt / 3600);
         t.ts = +(t.ts + rate).toFixed(2); t.bs = +(t.bs + rate*0.85).toFixed(2);
         t.tv = +(t.tv + rate*1.1).toFixed(2); t.cr = +((rate / (dt/3600))).toFixed(2);
       } else { t.cr = 0.0; }
+
+      t.mt = +(t.mp + t.ms).toFixed(1);
+      t.p = +Math.min(98, (t.mp / (10500 * (t.rho/1000))) * 100).toFixed(1);
+      t.s = +Math.min(98, (t.ms / (10500 * (t.rho/1000))) * 100).toFixed(1);
 
       const pEq = Math.max(10, (Math.pow(10, gr.A - gr.B / (t.tl + 273.15 + gr.C)) - 1.013) * 1000);
       t.pr = Math.round(t.pr * 0.8 + pEq * 0.2);
       if (t.pr >= 250) { S.man.marvs[i] = 1; S.man.mast[i] = Math.round((t.pr-245)*80); }
       else S.man.marvs[i] = 0;
 
-      t.mt = Math.round(((t.p + t.s)/100) * 10500 * (t.rho/1000));
       sumW += t.mt; sumMx += t.mt * lcgCt[i];
-      sumMy += ((t.s - t.p)/100) * 10500 * (t.rho/1000) * 7.5;
+      sumMy += (t.ms - t.mp) * 7.5;
       sumMz += t.mt * (1.8 + ((t.p+t.s)/200)*10.2);
       if (t.p > 2 && t.p < 95) sumFsm += 1100;
     });
 
-    [0,1].forEach(s => {
-      const mOpen = S.man.sc[s] && S.man.ev[s] && S.man.gv[s];
-      if (!mOpen && dt > 0) S.man.lpt[s] = +(S.man.lpt[s] + 0.08*(dt/60)).toFixed(1);
-      else S.man.lpt[s] = S.man.sb[s];
-      if (S.man.lpt[s] >= 10.0) { S.man.trv[s]=1; S.man.mast[s] += 450; S.man.lpt[s]=10.2; }
-      else S.man.trv[s]=0;
+    // Ballast Pumps (Singular = 1250 m3/h max, Parallel = 2320 m3/h max, Branch = 650 m3/h max)
+    const nBp = S.bal.pr[0] + S.bal.pr[1];
+    const maxBpCap = nBp === 0 ? 0 : (nBp === 1 ? 1250 : 2320);
+    const openWbt = S.wbt.filter(w => w[2] === 1).length;
+    S.bal.q = (nBp > 0 && S.bal.op > 0 && openWbt > 0) ? Math.min(maxBpCap, openWbt * 650) : 0;
+    const qBr = openWbt > 0 ? Math.round(S.bal.q / openWbt) : 0;
+    [0,1].forEach(p => {
+      S.bal.pq[p] = S.bal.pr[p] ? Math.round(S.bal.q / Math.max(1, nBp)) : 0;
+      S.bal.pb[p] = S.bal.pr[p] ? +(3.4 - (S.bal.pq[p]/1250)*0.85).toFixed(2) : 0;
+      S.bal.pa[p] = S.bal.pr[p] ? Math.round(68 + (S.bal.pq[p]/1250)*112) : 0;
     });
 
-    S.wbt.forEach((w, j) => {
+    S.wbt.forEach((w) => {
+      w[3] = (w[2] && S.bal.q > 0) ? (S.bal.op===2 ? -qBr : qBr) : 0;
+      if (dt > 0 && w[3] !== 0) w[0] = +Math.max(0, Math.min(100, w[0] + ((w[3]/3600)*dt/25))).toFixed(1);
       w[1] = w[0] <= 45 ? 0 : (w[0] <= 70 ? 1 : 2);
       const wm = (w[0]/100) * 2500 * 1.025;
       sumW += wm; sumMz += wm * (w[1]===0 ? 2.0 : (w[1]===1 ? 7.5 : 14.5));
       sumFsm += (w[1]===1 ? 85 : 550);
-    });
-
-    S.fgd.forEach((z, idx) => {
-      if (z[3]) z[0] = Math.min(100, +(z[0] + 5).toFixed(1));
-      else z[0] = Math.max(0, +(z[0] - 5).toFixed(1));
-      z[4] = z[0] >= 30 ? 2 : (z[0] >= 10 ? 1 : 0);
-      if (z[4] === 2 && idx >= 4 && !S.esd) { S.esd = 1; S.cause = "FGD 30% LEL TRIP"; }
     });
 
     S.disp = Math.round(sumW);
@@ -137,24 +160,17 @@
     S.tf = +(S.tm + S.trim * 0.48).toFixed(2);
     S.ta = +(S.tm - S.trim * 0.52).toFixed(2);
     S.heel = +(Math.atan2(sumMy / sumW, S.gm) * (180/Math.PI)).toFixed(2);
-
-    for (let s = 0; s < 20; s++) {
-      const x = (s - 9.5) / 9.5;
-      S.bm_c[s] = +(Math.cos(x * Math.PI * 0.8) * (45 + (S.ct[0].p - S.ct[1].p)*0.6)).toFixed(1);
-      S.sf_c[s] = +(Math.sin(x * Math.PI) * 38).toFixed(1);
-    }
-    S.bm = +Math.max(...S.bm_c.map(Math.abs)).toFixed(1);
-    S.sf = +Math.max(...S.sf_c.map(Math.abs)).toFixed(1);
-    S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
   }
 
   function parseCmd(url) {
     const q = url.split('?')[1]; if (!q) return;
     const p = new URLSearchParams(q);
     if (p.has('spd')) S.spd = +p.get('spd');
-    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; }
+    if (p.has('air')) S.air = +p.get('air');
+    if (p.has('sw')) S.sw = +p.get('sw');
+    if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; syncMass(S.ct[i]); }
     if (p.has('bhd')) { const i = +p.get('bhd'); S.ct[i].bhd = 1 - S.ct[i].bhd; }
-    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; }
+    if (p.has('grade')) { const i = +p.get('grade'), g = +p.get('g'); S.ct[i].g = g; S.ct[i].tl = GRADES[g].tb + 0.5; syncMass(S.ct[i]); }
     if (p.has('sys')) { const i = +p.get('sys'); S.ct[i].sys = 1 - S.ct[i].sys; }
     if (p.has('vsuc')) { const i = +p.get('vsuc'); S.ct[i].vsuc = 1 - S.ct[i].vsuc; }
     if (p.has('cin')) { const i = +p.get('cin'); S.ct[i].cin = 1 - S.ct[i].cin; }
@@ -172,6 +188,10 @@
     if (p.has('csys')) { const c = +p.get('csys'); S.comp[c][1] = 1 - S.comp[c][1]; }
     if (p.has('xo')) { const x = +p.get('xo'); S.xo[x] = 1 - S.xo[x]; }
     if (p.has('wbt')) S.wbt[+p.get('wbt')][0] = +p.get('v');
+    if (p.has('bpr')) { const b = +p.get('bpr'); S.bal.pr[b] = 1 - S.bal.pr[b]; }
+    if (p.has('bop')) S.bal.op = +p.get('bop');
+    if (p.has('bxo')) S.bal.xo = 1 - S.bal.xo;
+    if (p.has('bvlv')) { const j = +p.get('bvlv'); S.wbt[j][2] = 1 - S.wbt[j][2]; }
     if (p.has('wtgt')) S.wtgt = +p.get('wtgt');
     if (p.has('leak')) { const z = +p.get('leak'); S.fgd[z][3] = 1 - S.fgd[z][3]; }
     if (p.has('esd')) {
@@ -191,13 +211,13 @@
           t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr;
           t.hc = pr.hc; t.ig = pr.ig; t.o2 = pr.o2; t.prg = pr.prg;
           t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv;
+          syncMass(t);
         });
         S.wbt.forEach(w => w[0] = pr.wbt);
       }
     }
   }
 
-  // Intercept fetch('/state'): Uses native C++ server if running, or falls back to standalone_sim.js!
   const origFetch = window.fetch;
   let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
   window.fetch = async function(url, opts) {

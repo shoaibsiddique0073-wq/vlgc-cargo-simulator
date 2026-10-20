@@ -25,6 +25,7 @@ void handle_cmd(const std::string& req) {
     if (std::sscanf(q, "ct=%d&side=%d&v=%lf", &a, &b, &v) == 3 && a >= 0 && a < 4) {
         double max_fl = sim.th[a].max_fill_limit();
         sim.ct_m3[a][b & 1] = (std::clamp(v, 0.0, max_fl) / 100.0) * CT_GEOM[a].max_half_m3;
+        sim.th[a].sync_mass_from_vol(sim.ct_m3[a][0], sim.ct_m3[a][1]);
     } else if (std::sscanf(q, "bhd=%d", &a) == 1 && a >= 0 && a < 4) {
         sim.bhd_open[a] = !sim.bhd_open[a];
     } else if (std::sscanf(q, "pstart=%d&side=%d", &a, &b) == 2 && a >= 0 && a < 4) {
@@ -63,6 +64,7 @@ void handle_cmd(const std::string& req) {
         sim.th[a].t_liquid = def_t; sim.th[a].t_bot_shell = def_t + 0.3;
         sim.th[a].t_vapor  = def_t + 1.5; sim.th[a].t_top_shell = def_t + 2.5;
         sim.th[a].press_mbarg = sim.th[a].sat_press_mbarg(def_t);
+        sim.th[a].sync_mass_from_vol(sim.ct_m3[a][0], sim.ct_m3[a][1]);
     } else if (std::sscanf(q, "tshell=%d&v=%lf", &a, &v) == 2 && a >= 0 && a < 4) {
         sim.th[a].t_top_shell = v; sim.th[a].t_bot_shell = v - 1.5; sim.th[a].t_vapor = v - 0.5;
     } else if (std::sscanf(q, "sys=%d", &a) == 1 && a >= 0 && a < 4) {
@@ -73,6 +75,10 @@ void handle_cmd(const std::string& req) {
         if (!sim.fgd.esd1_active) sim.comp[a].mode = std::clamp(b, 0, 2);
     } else if (std::sscanf(q, "csys=%d", &a) == 1 && a >= 0 && a < 4) {
         sim.comp[a].sys_id = 1 - sim.comp[a].sys_id;
+    } else if (std::sscanf(q, "air=%lf", &v) == 1) {
+        sim.amb_air_c = std::clamp(v, -15.0, 50.0);
+    } else if (std::sscanf(q, "sw=%lf", &v) == 1) {
+        sim.amb_sw_c = std::clamp(v, -2.0, 38.0);
     } else if (std::sscanf(q, "xo=%d", &a) == 1) {
         if (a == 0) sim.vap_xover = !sim.vap_xover;
         if (a == 1) sim.cond_xover = !sim.cond_xover;
@@ -90,8 +96,14 @@ void handle_cmd(const std::string& req) {
         else sim.apply_preset(a);
     } else if (std::sscanf(q, "wbt=%d&v=%lf", &a, &v) == 2 && a >= 0 && a < 10) {
         sim.wbt_m3[a] = (std::clamp(v, 0.0, 100.0) / 100.0) * WBT_GEOM[a].max_m3;
-    } else if (std::sscanf(q, "bp=%d&m=%d", &a, &b) == 2 && (a == 0 || a == 1)) {
-        sim.bp_mode[a] = std::clamp(b, 0, 4);
+    } else if (std::sscanf(q, "bpr=%d", &a) == 1 && (a == 0 || a == 1)) {
+        sim.bal.pump_run[a] = !sim.bal.pump_run[a];
+    } else if (std::sscanf(q, "bop=%d", &a) == 1) {
+        sim.bal.op_mode = std::clamp(a, 0, 4);
+    } else if (std::sscanf(q, "bxo=%d", &a) == 1) {
+        sim.bal.ring_xover = !sim.bal.ring_xover;
+    } else if (std::sscanf(q, "bvlv=%d", &a) == 1 && a >= 0 && a < 10) {
+        sim.bal.wbt_vlv[a] = !sim.bal.wbt_vlv[a];
     } else if (std::sscanf(q, "wtgt=%d", &a) == 1) {
         sim.wbt_target = std::clamp(a, 0, 4);
     } else if (std::sscanf(q, "spd=%lf", &v) == 1) {
@@ -107,7 +119,7 @@ int main() {
     sockaddr_in addr{AF_INET, htons(8080), {INADDR_ANY}, {}};
     bind(srv, (sockaddr*)&addr, sizeof(addr));
     listen(srv, 12);
-    std::cout << "Phase 6 Complete VLGC Simulator live at http://127.0.0.1:8080\n";
+    std::cout << "VLGC Simulator v1.1 (Ballast Network, Air/SW Thermo & Mass Conservation) live at http://127.0.0.1:8080\n";
 
     char buf[2048];
     while (true) {
@@ -124,6 +136,8 @@ int main() {
             handle_cmd(req);
             sim.step(std::min(dt, 1.0));
             body = sim.to_json();
+        } else if (req.find("GET /standalone_sim.js") != std::string::npos) {
+            type = "application/javascript"; body = load_file("standalone_sim.js");
         } else if (req.find("GET /ui_3d.js") != std::string::npos) {
             type = "application/javascript"; body = load_file("ui_3d.js");
         } else if (req.find("GET /ui_mimics.js") != std::string::npos) {
