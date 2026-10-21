@@ -79,6 +79,7 @@
         lw[i] = kv * Math.sqrt(dp); sumLw[t.sys] += lw[i];
       }
     });
+
     S.ct.forEach((t, i) => {
       const gr = GRADES[t.g];
       t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
@@ -206,9 +207,9 @@
     S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
   }
 
-  function parseCmd(url) {
-    const q = url.split('?')[1]; if (!q) return;
-    const p = new URLSearchParams(q);
+  function parseCmd(q) {
+    if (!q) return;
+    const p = new URLSearchParams(q.includes('?') ? q.split('?')[1] : q);
     if (p.has('spd')) S.spd = +p.get('spd'); if (p.has('air')) S.air = +p.get('air'); if (p.has('sw')) S.sw = +p.get('sw');
     if (p.has('ct')) { const i = +p.get('ct'), s = +p.get('side'), v = +p.get('v'); if (s===0) S.ct[i].p = v; else S.ct[i].s = v; syncMass(S.ct[i]); }
     if (p.has('bhd')) { const i = +p.get('bhd'); S.ct[i].bhd = 1 - S.ct[i].bhd; }
@@ -254,6 +255,7 @@
     }
   }
 
+  window.vlgcStepLocal = function(q) { parseCmd(q); stepLocal(0.3); return S; };
   const origFetch = window.fetch;
   let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
   window.fetch = async function(url, opts) {
@@ -261,8 +263,7 @@
       if (!serverlessMode) {
         try { const r = await origFetch(url, opts); if (r.ok) return r; } catch(e) { serverlessMode = true; }
       }
-      parseCmd(url); stepLocal(0.3);
-      return { ok: true, json: async () => S };
+      return { ok: true, json: async () => window.vlgcStepLocal(url) };
     }
     return origFetch(url, opts);
   };
