@@ -268,3 +268,51 @@ async function sync(q = '', sfx = '') {
 }
 function cmd(q, sfx = '') { sync(q, sfx); }
 setInterval(() => sync(), 300); sync();
+// --- SELF-HEALING STAGE 2 DOM & 3D OVERLAP FIX ---
+(function initStage2Layout() {
+  const st = document.createElement('style');
+  st.textContent = `
+    #v3d, #view0, .view3d-wrap { position: relative !important; margin-top: 6px !important; }
+    #hud3d, .hud3d, #v3dInfo, #threeHud, #v3d > div:first-child {
+      top: 12px !important; margin-top: 4px !important; z-index: 5 !important;
+      background: rgba(4, 12, 24, 0.85) !important; padding: 6px 10px !important; border-radius: 4px;
+    }
+  `;
+  document.head.appendChild(st);
+
+  function ensureOpsDom() {
+    if (!document.getElementById('opsDataContent')) {
+      const refView = document.getElementById('presetList') ? document.getElementById('presetList').parentElement : document.body;
+      const v12 = document.createElement('div');
+      v12.id = 'view12'; v12.className = refView.className || 'view';
+      v12.style.display = 'none'; v12.style.padding = '8px';
+      v12.innerHTML = '<div id="opsDataContent"></div>';
+      refView.parentNode.appendChild(v12);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensureOpsDom);
+  else ensureOpsDom();
+
+  const origSetView = window.setView;
+  window.setView = function(v) {
+    ensureOpsDom();
+    const v12 = document.getElementById('view12');
+    const t12 = document.getElementById('tab12');
+    if (v === 12) {
+      window.curView = 12;
+      document.querySelectorAll('.view, [id^="view"], #v3d, #vTank, #vHdr, #vPmp, #vComp, #vWbt, #vFgd, #vLoad, #vPre').forEach(el => {
+        if (el.id !== 'view12') el.style.display = 'none';
+      });
+      document.querySelectorAll('.tab, nav button').forEach(b => b.classList.remove('active'));
+      if (t12) t12.classList.add('active');
+      if (v12) v12.style.display = 'block';
+      if (window.lastData) renderOpsDataView(window.lastData);
+    } else {
+      if (v12) v12.style.display = 'none';
+      if (t12) t12.classList.remove('active');
+      if (typeof origSetView === 'function') origSetView(v);
+      window.curView = v;
+      if (window.lastData) window.renderActiveView(window.lastData);
+    }
+  };
+})();

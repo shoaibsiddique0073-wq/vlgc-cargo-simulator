@@ -1,9 +1,12 @@
 (function() {
   const GRADES = [
-    {mw:44.097, tb:-42.1, A:3.92828, B:803.997, C:-26.11, r15:507.5, a:0.00162, k:1.13, tr:-36.8},
-    {mw:58.122, tb:-0.5,  A:3.93266, B:935.773, C:-34.36, r15:584.2, a:0.00108, k:1.10, tr:4.8},
-    {mw:17.031, tb:-33.3, A:4.48540, B:926.132, C:-32.98, r15:618.2, a:0.00148, k:1.31, tr:-28.2}
+    {mw:44.097, tb:-42.1, A:3.92828, B:803.997, C:-26.11, r15:507.5, a:0.00162, k:1.13, tr:-36.8, hfg:425, cp:2.25},
+    {mw:58.122, tb:-0.5,  A:3.93266, B:935.773, C:-34.36, r15:584.2, a:0.00108, k:1.10, tr:4.8,  hfg:386, cp:2.32},
+    {mw:17.031, tb:-33.3, A:4.48540, B:926.132, C:-32.98, r15:618.2, a:0.00148, k:1.31, tr:-28.2, hfg:1369, cp:4.45}
   ];
+  const satP = (g, t) => Math.max(0.5, (Math.pow(10, GRADES[g].A - GRADES[g].B / (Math.max(215, t + 273.15) + GRADES[g].C)) - 1.01325) * 100);
+  const satT = (g, p) => Math.max(GRADES[g].tb - 0.2, (GRADES[g].B / (GRADES[g].A - Math.log10(1.01325 + Math.max(0.5, p) / 100)) - GRADES[g].C) - 273.15);
+
   const PRESETS = [
     {n:"1. Pre-DD: Stripping & Puddle Heating", c:"PRE-DRYDOCK", g1:0, g2:0, p:1.2, ts:-39, tv:-35, tl:-41.5, pr:13.5, hc:98.5, ig:1.4, o2:0.1, prg:0, cm:2, vr:[0,0,1,0,0,1], mop:1, dwp:0, fv:0, wbt:65},
     {n:"2. Pre-DD: Tank Warming-Up (+5C Target)", c:"PRE-DRYDOCK", g1:0, g2:0, p:0.0, ts:-18, tv:12, tl:-15, pr:16.0, hc:98, ig:1.9, o2:0.1, prg:0, cm:2, vr:[0,1,1,0,1,1], mop:0, dwp:0, fv:0, wbt:65},
@@ -22,19 +25,11 @@
   const S = {
     spd:1, time:0, air:25.0, sw:22.0, disp:51200, tf:8.2, ta:8.6, tm:8.4, trim:-0.4, heel:0.0,
     tpc:68.2, mctc:995, lcb:1.9, lcf:-2.6, lcg:1.5, kmt:16.9, kg:11.8, fsc:1.2, gm:3.9,
-    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, xo:[0,0,0],
-    esd:0, cause:"SYSTEM NORMAL", mdp:55, cvent:1, floop:1,
-    bal:{pr:[0,0], op:1, xo:1, q:0, pq:[0,0], pb:[0.0,0.0], pa:[0,0]},
-    man:{op:[1,1], sc:[1,1], ev:[1,1], gv:[100,100], lpt:[4.0,4.0], ltt:[-41.2,-0.3],
-         vpt:[0.09,0.09], vtt:[-39,0.5], cpt:[0.1,0.1], ctt:[-41,0],
-         trv:[0,0], marvs:[0,0,0,0], mast:[0,0,0,0], sb:[4.0,4.0], q:[0,0], htr:0, bst:0, et:-41.5, eb:4.0},
-    ct:[0,1,2,3].map(i => ({
-      p:50, s:50, mp:3055.5, ms:3055.5, bhd:1, g:0, sys:i%2, fl:96.9, pr:9.50, hpr:2.20,
-      rho:582, mt:6111.0, vsuc:1, cin:1, lact:0, lq:0,
-      ts:-38.5, bs:-41.2, tv:-39.5, tl:-41.5, cr:0.0, hc:98.5, ig:1.4, o2:0.1, prg:0, fv:0,
-      vr:[0,0,0,0,0,0], dp:[0,25,0,0,0,0,0], ds:[0,25,0,0,0,0,0]
-    })),
-    comp:[[0,0,91,9.2],[0,0,91,9.2],[0,1,91,9.2],[0,1,91,9.2]],
+    sf:42, bm:48, hsf:32, hbm:36, wtgt:0, xo:[0,0,0], esd:0, cause:"SYSTEM NORMAL", mdp:55, cvent:1, floop:1,
+    bal:{pr:[0,0], op:1, xo:1, q:0, pq:[0,0], pb:[0,0], pa:[0,0]},
+    man:{op:[1,1], sc:[1,1], ev:[1,1], gv:[100,100], lpt:[4.0,4.0], ltt:[-41.2,-0.3], vpt:[0.09,0.09], vtt:[-39,0.5], cpt:[8.5,8.5], ctt:[28,28], trv:[0,0], marvs:[0,0,0,0], mast:[0,0,0,0], sb:[4.0,4.0], q:[0,0], htr:0, bst:0, et:-41.5, eb:4.0},
+    ct:[0,1,2,3].map(i => ({p:50, s:50, mp:3055.5, ms:3055.5, bhd:1, g:0, sys:i<2?0:1, fl:96.9, pr:9.50, hpr:2.20, ht:14.5, rho:582, mt:6111.0, vsuc:1, cin:1, lact:0, lq:0, ts:-38.5, bs:-41.2, tv:-39.5, tl:-41.5, cr:0.0, hc:98.5, ig:1.4, o2:0.1, prg:0, fv:0, vr:[0,0,0,0,0,0], dp:[0,25,0,0,0,0,0], ds:[0,25,0,0,0,0,0]})),
+    comp:[[0,0,91,8.5,0,9.5],[0,0,91,8.5,0,9.5],[0,1,91,8.5,0,9.5],[0,1,91,8.5,0,9.5]],
     fgd:[0,1,2,3,4,5].map(z => [0.0, z<4?0.8:20.9, 0, 0, 0]),
     wbt:[0,1,2,3,4,5,6,7,8,9].map((_,j) => [45.0, 0, j<2?100:0, 0]),
     presets: PRESETS, sf_c: Array(20).fill(0), bm_c: Array(20).fill(0)
@@ -50,163 +45,86 @@
   S.ct.forEach(syncMass);
 
   function stepLocal(dtReal) {
-    const dt = dtReal * S.spd; S.time = Math.round(S.time + dt);
-    if (S.esd) {
-      S.comp.forEach(c => c[0]=0);
-      S.ct.forEach(t => { t.dp[0]=0; t.ds[0]=0; t.fv=0; });
-      S.man.ev = [0,0]; S.man.op = [0,0];
-    }
+    const dt = dtReal * S.spd, dtHr = dt / 3600; S.time = Math.round(S.time + dt);
+    if (S.esd) { S.comp.forEach(c => c[0]=0); S.ct.forEach(t => { t.dp[0]=0; t.ds[0]=0; t.fv=0; }); S.man.ev=[0,0]; S.man.op=[0,0]; }
     const swEff = Math.round(Math.max(58, Math.min(100, 100 - Math.max(0, S.sw - 15) * 1.35)));
-    const flowSys = [0,0], hotSys = [false,false];
+    const sucKpa = [0,0], cntSys = [0,0], drawSys = [0,0], hotSys = [false,false];
+    S.ct.forEach(t => { if (t.vsuc) { sucKpa[t.sys] += t.pr; cntSys[t.sys]++; } });
+    [0,1].forEach(s => { if (cntSys[s]>0) sucKpa[s] = +(sucKpa[s]/cntSys[s]).toFixed(2); S.man.vpt[s] = +(sucKpa[s]/100).toFixed(3); });
     S.comp.forEach(c => {
-      c[2] = c[0]===1 ? swEff : (c[0]===2 ? 100 : 0);
-      c[3] = +(6.5 + S.sw * 0.22).toFixed(1);
-      if (c[0]>0) { flowSys[c[1]] += 3.2 * (c[2]/100); if (c[0]===2) hotSys[c[1]]=true; }
+      const s = c[1]; c[2] = c[0]===1 ? swEff : (c[0]===2 ? 100 : 0); c[3] = +(6.5 + S.sw * 0.22).toFixed(1); c[5] = sucKpa[s];
+      c[4] = (c[0]===0 || cntSys[s]===0 || sucKpa[s]<=1.5) ? 0 : (sucKpa[s]<6.0 ? Math.round(((sucKpa[s]-1.5)/4.5)*100) : 100);
+      if (c[4]>0) { drawSys[s] += 1.65 * (c[4]/100) * (c[2]/100); if (c[0]===2) hotSys[s]=true; }
     });
 
-    let sumW = 18650, sumMx = 18650 * -4.25, sumMy = 0, sumMz = 18650 * 13.6, sumFsm = 0;
-    const lcgCt = [64.2, 22.8, -19.5, -61.0];
-    const lcgWbt = [62.0, 62.0, 22.0, 22.0, -20.0, -20.0, -60.0, -60.0, 96.5, -94.0];
+    let sumW = 18650, sumMx = 18650*-4.25, sumMy = 0, sumMz = 18650*13.6, sumFsm = 0;
+    const lcgCt = [64.2, 22.8, -19.5, -61.0], lcgWbt = [62,62,22,22,-20,-20,-60,-60,96.5,-94];
     S.man.q = [0,0]; S.man.mast = [0,0,0,0];
-
-    const lw = [0,0,0,0], sumLw = [0,0];
     S.ct.forEach((t, i) => {
-      t.lq = 0;
-      const kv = Math.pow(t.fv / 100, 1.25);
-      const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && (S.man.gv[t.sys] > 1);
-      if (S.man.op[t.sys] === 2 && mOpen && kv > 0.01) {
-        const dp = Math.max(0.25, S.man.sb[t.sys] + 1.5 - (t.pr/100 + ((t.p+t.s)/200)*1.0));
-        lw[i] = kv * Math.sqrt(dp); sumLw[t.sys] += lw[i];
-      }
-    });
-
-    S.ct.forEach((t, i) => {
-      const gr = GRADES[t.g];
+      const gr = GRADES[t.g], prevTs = t.ts, fillPct = 0.5*(t.p+t.s);
       t.rho = +(gr.r15 * (1 - gr.a * (t.tl - 15))).toFixed(1);
-      const rhoRef = gr.r15 * (1 - gr.a * (gr.tr - 15));
-      t.fl = +Math.min(98, 98 * (rhoRef / t.rho)).toFixed(1);
-      t.hpr = +(2.0 + (0.7*S.sw + 0.3*S.air - 15)*0.025).toFixed(2);
+      t.fl = +Math.min(98, 98 * ((gr.r15*(1-gr.a*(gr.tr-15))) / t.rho)).toFixed(1);
+      t.ht = +(0.55*S.sw + 0.25*S.air + 0.20*t.bs).toFixed(1);
+      t.hpr = +Math.max(0.5, 2.0 + (t.ht - 15)*0.06).toFixed(2);
 
-      if (t.bhd && dt > 0) {
-        const hp = (t.p/100)*18.5, hs = (t.s/100)*18.5;
-        const dh = (hp - hs) + 2.0 * 7.2 * Math.tan(S.heel * Math.PI / 180);
-        if (Math.abs(dh) > 0.005) {
-          const qOrf = 0.65 * 0.125 * Math.sqrt(2 * 9.81 * Math.abs(dh));
-          const maxEq = (Math.abs(dh)/18.5) * 10500 * (t.rho/1000) * 0.45;
-          const dm = Math.min(maxEq, qOrf * dt * (t.rho/1000)) * (dh > 0 ? 1 : -1);
-          t.mp = Math.max(0, +(t.mp - dm).toFixed(2));
-          t.ms = Math.max(0, +(t.ms + dm).toFixed(2));
-        }
-      }
-
-      const kvGate = Math.pow(S.man.gv[t.sys] / 100, 1.25);
-      const mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && (kvGate > 0.01);
+      const kvG = Math.pow(S.man.gv[t.sys]/100, 1.25), mOpen = S.man.sc[t.sys] && S.man.ev[t.sys] && kvG>0.01;
+      let netLiqM3s = 0;
       [t.dp, t.ds].forEach((p, sd) => {
         if (p[0]) {
-          const q = Math.round((p[1]/100) * 620 * (mOpen ? Math.sqrt(kvGate) : 0));
-          p[2] = mOpen && S.man.op[t.sys]===1 ? q : 0;
-          p[3] = +(mOpen ? S.man.sb[t.sys] + 1.5 + (1-kvGate)*4.5 : 13.5).toFixed(1);
-          p[4] = Math.round(45 + (q/600)*115);
-          if (dt > 0 && mOpen && S.man.op[t.sys]===1) {
-            const dmt = (q/3600)*dt*(t.rho/1000);
-            if (sd===0) t.mp = Math.max(0, +(t.mp - dmt).toFixed(2));
-            else t.ms = Math.max(0, +(t.ms - dmt).toFixed(2));
-          }
+          const q = Math.round((p[1]/100) * 620 * (mOpen ? Math.sqrt(kvG) : 0));
+          p[2] = mOpen && S.man.op[t.sys]===1 ? q : 0; p[3] = +(mOpen ? S.man.sb[t.sys]+1.5+(1-kvG)*4.5 : 13.5).toFixed(1); p[4] = Math.round(45+(q/600)*115);
+          if (dt>0 && p[2]>0) { const dm = (p[2]/3600)*dt*(t.rho/1000); if (sd===0) t.mp=Math.max(0,t.mp-dm); else t.ms=Math.max(0,t.ms-dm); netLiqM3s -= p[2]/3600; }
           S.man.q[t.sys] += p[2];
         } else { p[2]=0; p[3]=0; p[4]=0; }
       });
-
-      if (lw[i] > 0 && sumLw[t.sys] > 0) {
-        const qHdr = 2400 * kvGate * Math.min(1, sumLw[t.sys] / 0.85);
-        t.lq = Math.round(qHdr * (lw[i] / sumLw[t.sys]));
-        if (dt > 0) {
-          const dmt = (t.lq / 3600) * dt * (t.rho / 1000) * 0.5;
-          t.mp += dmt; t.ms += dmt; S.man.q[t.sys] += t.lq;
-          t.pr = +(t.pr + (t.lq / 3600) * dt * 0.012).toFixed(2);
-        }
-      }
+      t.lq = (S.man.op[t.sys]===2 && mOpen && t.fv>1) ? Math.round(600 * Math.pow(t.fv/100, 1.25) * kvG) : 0;
+      if (t.lq>0 && dt>0) { const dm = (t.lq/3600)*dt*(t.rho/1000)*0.5; t.mp+=dm; t.ms+=dm; netLiqM3s += t.lq/3600; S.man.q[t.sys]+=t.lq; }
 
       if (dt > 0) {
-        const dtHr = dt / 3600;
-        t.ts = +(t.ts + (S.air - t.ts) * 0.008 * dtHr).toFixed(2);
-        t.bs = +(t.bs + (S.sw - t.bs) * 0.006 * dtHr).toFixed(2);
+        t.ts = +(t.ts + (S.air - t.ts)*0.0075*dtHr).toFixed(2);
+        t.bs = +(t.bs + (S.sw - t.bs)*0.0055*dtHr).toFixed(2);
+        t.tv = +(t.tv + ((0.6*t.ts + 0.4*t.tl) - t.tv)*0.18*dtHr).toFixed(2);
       }
-      const nOpen = t.vr.reduce((a,b)=>a+b, 0);
-      t.lact = (t.vsuc && t.cin && nOpen > 0 && flowSys[t.sys] > 0) ? 1 : 0;
+      const nOpen = t.vr.reduce((a,b)=>a+b, 0), cDraw = (cntSys[t.sys]>0 && t.vsuc) ? drawSys[t.sys]/cntSys[t.sys] : 0;
+      t.lact = (t.vsuc && t.cin && nOpen>0 && cDraw>0.01) ? 1 : 0;
       if (t.lact && dt > 0) {
-        const tSup = hotSys[t.sys] ? 68 : gr.tb - 1;
-        const rate = ((tSup - t.ts) * 0.08 * (swEff/100)) * (dt / 3600);
-        t.ts = +(t.ts + rate).toFixed(2); t.bs = +(t.bs + rate*0.85).toFixed(2);
-        t.tv = +(t.tv + rate*1.1).toFixed(2); t.cr = +((rate / (dt/3600))).toFixed(2);
-      } else { t.cr = 0.0; }
-
-      t.mt = +(t.mp + t.ms).toFixed(1);
-      t.p = +Math.min(98, (t.mp / (10500 * (t.rho/1000))) * 100).toFixed(1);
-      t.s = +Math.min(98, (t.ms / (10500 * (t.rho/1000))) * 100).toFixed(1);
-
-      const pEq = Math.max(1.0, (Math.pow(10, gr.A - gr.B / (t.tl + 273.15 + gr.C)) - 1.01325) * 100);
-      t.pr = +(t.pr * 0.85 + pEq * 0.15).toFixed(2);
-      if (t.pr >= 25.0) { S.man.marvs[i] = 1; S.man.mast[i] = Math.round((t.pr-24.5)*850); }
-      else S.man.marvs[i] = 0;
-
-      sumW += t.mt; sumMx += t.mt * lcgCt[i]; sumMy += (t.ms - t.mp) * 7.2;
-      sumMz += t.mt * (1.8 + ((t.p+t.s)/200)*10.2);
-      if (t.p > 2 && t.p < 95) sumFsm += 1100;
-    });
-
-    const nBp = S.bal.pr[0] + S.bal.pr[1], maxBpCap = nBp === 0 ? 0 : (nBp === 1 ? 1250 : 2320);
-    let sumBrCap = 0;
-    const brCap = S.wbt.map((w, j) => {
-      const kv = Math.pow(w[2] / 100, 1.25); if (kv < 0.01) return 0;
-      if (S.bal.op === 5) {
-        const hTk = j>=8 ? 3+(w[0]/100)*11 : (w[0]<=45 ? (w[0]/45)*2.8 : (w[0]<=70 ? 2.8+((w[0]-45)/25)*9.7 : 12.5+((w[0]-70)/30)*8.5));
-        const dh = S.tm - hTk;
-        return Math.abs(dh) > 0.15 ? Math.sign(dh) * Math.min(650*kv, kv*175*Math.sqrt(Math.abs(dh))) : 0;
+        const tFloor = satT(t.g, t.pr), tSup = hotSys[t.sys] ? 68.0 : tFloor;
+        const dT = (tSup - t.ts) * 0.25 * nOpen * dtHr;
+        t.ts = +(hotSys[t.sys] ? Math.min(65, t.ts+dT) : Math.max(tFloor, t.ts+dT)).toFixed(2);
+        t.bs = +(hotSys[t.sys] ? Math.min(65, t.bs+dT*0.85) : Math.max(tFloor, t.bs+dT*0.85)).toFixed(2);
+        t.tv = +(hotSys[t.sys] ? Math.min(65, t.tv+dT*1.1) : Math.max(tFloor, t.tv+dT*1.1)).toFixed(2);
+        t.tl = +(hotSys[t.sys] ? Math.min(65, t.tl+dT*0.3) : Math.max(tFloor, t.tl+(tFloor-t.tl)*0.15*dtHr)).toFixed(2);
       }
-      const cap = 650 * kv; sumBrCap += cap; return cap;
+      t.cr = dtHr>1e-7 ? +((t.ts - prevTs)/dtHr).toFixed(2) : 0.0;
+
+      const vUll = Math.max(420, 21000*(1 - fillPct/100)), pEq = satP(t.g, t.tl);
+      const mBoil = fillPct>0.2 ? ((pEq - t.pr)*0.28 + 0.08) : 0.02;
+      const mNet = mBoil - cDraw - (t.lact && !hotSys[t.sys] ? 0.35*cDraw : 0);
+      if (dt > 0) {
+        const dpMass = (mNet * (8.31446/gr.mw) * (t.tv+273.15) / vUll) * dt;
+        const dpPist = ((t.pr+101.325) * (netLiqM3s / vUll)) * dt;
+        t.pr = +Math.max(0.5, Math.min(32.0, t.pr + dpMass + dpPist)).toFixed(2);
+      }
+      if (t.pr >= 25.0) { S.man.marvs[i]=1; S.man.mast[i]=Math.round((t.pr-24.8)*1200); } else S.man.marvs[i]=0;
+      t.mt = +(t.mp + t.ms).toFixed(1);
+      t.p = +Math.min(98, (t.mp/(10500*(t.rho/1000)))*100).toFixed(1);
+      t.s = +Math.min(98, (t.ms/(10500*(t.rho/1000)))*100).toFixed(1);
+      sumW += t.mt; sumMx += t.mt*lcgCt[i]; sumMy += (t.ms - t.mp)*7.2; sumMz += t.mt*(1.8 + (fillPct/100)*10.2);
+      if (t.p>2 && t.p<95) sumFsm += 1100;
     });
-
-    if (S.bal.op === 5) {
-      S.bal.q = Math.round(brCap.reduce((a,b)=>a+Math.abs(b), 0));
-      S.bal.pq = [0,0]; S.bal.pb = [0,0]; S.bal.pa = [0,0];
-    } else {
-      S.bal.q = (nBp > 0 && S.bal.op > 0 && sumBrCap > 0) ? Math.round(Math.min(maxBpCap, sumBrCap)) : 0;
-      [0,1].forEach(p => {
-        S.bal.pq[p] = S.bal.pr[p] ? Math.round(S.bal.q / Math.max(1, nBp)) : 0;
-        S.bal.pb[p] = S.bal.pr[p] ? +(3.4 - (S.bal.pq[p]/1250)*0.85).toFixed(2) : 0;
-        S.bal.pa[p] = S.bal.pr[p] ? Math.round(68 + (S.bal.pq[p]/1250)*112) : 0;
-      });
-    }
-
     S.wbt.forEach((w, j) => {
-      w[3] = S.bal.op === 5 ? Math.round(brCap[j]) : ((S.bal.q > 0 && sumBrCap > 0) ? Math.round((brCap[j]/sumBrCap)*S.bal.q*(S.bal.op===2?-1:1)) : 0);
-      if (dt > 0 && w[3] !== 0) w[0] = +Math.max(0, Math.min(100, w[0] + ((w[3]/3600)*dt/25))).toFixed(1);
-      w[1] = w[0] <= 45 ? 0 : (w[0] <= 70 ? 1 : 2);
-      const wm = (w[0]/100) * (j>=8 ? 1600 : 2500) * 1.025;
-      const sign = j >= 8 ? 0 : (j % 2 === 0 ? -1 : 1);
-      sumW += wm; sumMx += wm * lcgWbt[j];
-      sumMy += wm * sign * (w[1]===0 ? 8.4 : (w[1]===1 ? 16.8 : 14.5));
-      sumMz += wm * (w[1]===0 ? 2.0 : (w[1]===1 ? 7.5 : 14.5));
+      const wm = (w[0]/100)*(j>=8?1600:2500)*1.025, sign = j>=8 ? 0 : (j%2===0 ? -1 : 1);
+      w[1] = w[0]<=45 ? 0 : (w[0]<=70 ? 1 : 2);
+      sumW += wm; sumMx += wm*lcgWbt[j]; sumMy += wm*sign*(w[1]===0?8.4:(w[1]===1?16.8:14.5)); sumMz += wm*(w[1]===0?2.0:(w[1]===1?7.5:14.5));
       sumFsm += (w[1]===1 ? 85 : 550);
     });
-
-    S.disp = Math.round(sumW); S.tm = +(4.0 + (sumW - 23400) / 6800).toFixed(2);
-    S.kmt = +(22.5 - S.tm * 0.55).toFixed(2); S.kg = +(sumMz / sumW).toFixed(2);
-    S.fsc = +(sumFsm / sumW).toFixed(2); S.gm = +Math.max(0.3, S.kmt - S.kg - S.fsc).toFixed(2);
-    S.lcg = +(sumMx / sumW).toFixed(2); S.trim = +((sumW * (S.lcg - S.lcb)) / (S.mctc * 100)).toFixed(2);
-    S.tf = +(S.tm + S.trim * 0.48).toFixed(2); S.ta = +(S.tm - S.trim * 0.52).toFixed(2);
-    S.heel = +Math.max(-18, Math.min(18, Math.atan2(sumMy / sumW, S.gm) * (180/Math.PI))).toFixed(2);
-
-    const midLoad = ((S.ct[1].p + S.ct[2].p) - (S.wbt[2][0] + S.wbt[4][0])*0.45) * 0.55;
-    for (let s = 0; s < 20; s++) {
-      const x = (s - 9.5) / 9.5;
-      S.bm_c[s] = s===19 ? 0 : +(Math.cos(x * Math.PI * 0.5) * (-42 - midLoad * 0.35)).toFixed(1);
-      S.sf_c[s] = s===19 ? 0 : +(Math.sin(x * Math.PI) * (38 + Math.abs(midLoad) * 0.25)).toFixed(1);
-    }
-    S.bm = +Math.max(...S.bm_c.map(Math.abs)).toFixed(1); S.sf = +Math.max(...S.sf_c.map(Math.abs)).toFixed(1);
-    S.hbm = +(S.bm * 0.76).toFixed(1); S.hsf = +(S.sf * 0.76).toFixed(1);
+    S.disp = Math.round(sumW); S.tm = +(4.0 + (sumW - 23400)/6800).toFixed(2);
+    S.kmt = +(22.5 - S.tm*0.55).toFixed(2); S.kg = +(sumMz/sumW).toFixed(2); S.fsc = +(sumFsm/sumW).toFixed(2);
+    S.gm = +Math.max(0.3, S.kmt - S.kg - S.fsc).toFixed(2); S.lcg = +(sumMx/sumW).toFixed(2);
+    S.trim = +((sumW*(S.lcg - S.lcb))/(S.mctc*100)).toFixed(2);
+    S.tf = +(S.tm + S.trim*0.48).toFixed(2); S.ta = +(S.tm - S.trim*0.52).toFixed(2);
+    S.heel = +Math.max(-18, Math.min(18, Math.atan2(sumMy/sumW, S.gm)*(180/Math.PI))).toFixed(2);
   }
-
   function parseCmd(q) {
     if (!q) return;
     const p = new URLSearchParams(q.includes('?') ? q.split('?')[1] : q);
@@ -235,34 +153,22 @@
     if (p.has('bvlv')) { const j = +p.get('bvlv'); S.wbt[j][2] = p.has('v') ? +p.get('v') : (S.wbt[j][2] > 5 ? 0 : 100); }
     if (p.has('wtgt')) S.wtgt = +p.get('wtgt');
     if (p.has('leak')) { const z = +p.get('leak'); S.fgd[z][3] = 1 - S.fgd[z][3]; }
-    if (p.has('esd')) {
-      const e = +p.get('esd');
-      if (e===1) { S.esd=1; S.cause="MANUAL ESD-1 PUSHBUTTON"; }
-      else if (e===0) { S.esd=0; S.cause="ESD RESET - NORMAL"; S.fgd.forEach(z=>{z[0]=0;z[3]=0;z[4]=0;}); }
-    }
+    if (p.has('esd')) { const e = +p.get('esd'); if (e===1) { S.esd=1; S.cause="MANUAL ESD-1"; } else if (e===0) { S.esd=0; S.cause="NORMAL"; } }
     if (p.has('preset')) {
       const idx = +p.get('preset');
-      if (idx === -1) S.presets.push({...PRESETS[0], n:"Custom Snapshot #" + (S.presets.length - 11), c:"CUSTOM", p:S.ct[0].p});
-      else if (S.presets[idx]) {
+      if (idx >= 0 && S.presets[idx]) {
         const pr = S.presets[idx]; S.esd = 0; S.comp.forEach(c => c[0] = pr.cm); S.man.op = [pr.mop, pr.mop];
-        S.ct.forEach(t => {
-          t.g = t.sys===0 ? pr.g1 : pr.g2; t.p = pr.p; t.s = pr.p; t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr;
-          t.hc = pr.hc; t.ig = pr.ig; t.o2 = pr.o2; t.prg = pr.prg; t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv;
-          syncMass(t);
-        });
+        S.ct.forEach(t => { t.g = t.sys===0 ? pr.g1 : pr.g2; t.p = pr.p; t.s = pr.p; t.ts = pr.ts; t.tv = pr.tv; t.tl = pr.tl; t.pr = pr.pr; t.vr = [...pr.vr]; t.dp[0] = pr.dwp; t.ds[0] = pr.dwp; t.fv = pr.fv; syncMass(t); });
         S.wbt.forEach(w => w[0] = pr.wbt);
       }
     }
   }
-
   window.vlgcStepLocal = function(q) { parseCmd(q); stepLocal(0.3); return S; };
   const origFetch = window.fetch;
   let serverlessMode = (location.protocol === 'file:' || location.hostname.includes('github.io'));
   window.fetch = async function(url, opts) {
     if (typeof url === 'string' && url.includes('/state')) {
-      if (!serverlessMode) {
-        try { const r = await origFetch(url, opts); if (r.ok) return r; } catch(e) { serverlessMode = true; }
-      }
+      if (!serverlessMode) { try { const r = await origFetch(url, opts); if (r.ok) return r; } catch(e) { serverlessMode = true; } }
       return { ok: true, json: async () => window.vlgcStepLocal(url) };
     }
     return origFetch(url, opts);
