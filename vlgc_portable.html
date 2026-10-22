@@ -905,20 +905,20 @@ setInterval(() => sync(), 300); sync();
     const v12 = document.getElementById('view12');
     const t12 = document.getElementById('tab12');
     if (v === 12) {
-      window.curView = 12;
+      curView = 12; window.curView = 12;
       document.querySelectorAll('.view, [id^="view"], #v3d, #vTank, #vHdr, #vPmp, #vComp, #vWbt, #vFgd, #vLoad, #vPre').forEach(el => {
         if (el.id !== 'view12') el.style.display = 'none';
       });
       document.querySelectorAll('.tab, nav button').forEach(b => b.classList.remove('active'));
       if (t12) t12.classList.add('active');
-      if (v12) v12.style.display = 'block';
-      if (window.lastData) renderOpsDataView(window.lastData);
+      if (v12) { v12.classList.add('active'); v12.style.display = 'block'; }
+      if (lastData) renderOpsDataView(lastData);
     } else {
-      if (v12) v12.style.display = 'none';
+      if (v12) { v12.classList.remove('active'); v12.style.display = 'none'; }
       if (t12) t12.classList.remove('active');
       if (typeof origSetView === 'function') origSetView(v);
-      window.curView = v;
-      if (window.lastData) window.renderActiveView(window.lastData);
+      curView = v; window.curView = v;
+      if (lastData) window.renderActiveView(lastData);
     }
   };
 })();
