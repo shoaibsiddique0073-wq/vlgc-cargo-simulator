@@ -1,431 +1,320 @@
 #pragma once
 #include "hydro_stress.hpp"
-#include "thermo.hpp"
-#include "piping_pumps.hpp"
+#include "fluid_props.hpp"
+#include "comp_node.hpp"
+#include "pump_node.hpp"
+#include "tank_node.hpp"
 #include "safety_fgd.hpp"
-#include "presets.hpp"
-#include <string>
-#include <vector>
-#include <cstdio>
+#include "presets_12.hpp"
 #include <sstream>
+#include <iomanip>
 
-struct Compressor {
-    int mode = 0;            // 0=STOP, 1=RELIQ, 2=HOT GAS
-    int sys_id = 0;          // 0=Sys 1, 1=Sys 2
-    double nom_flow_kg_s = 3.2;
-    double act_flow_kg_s = 0.0;
-    double cool_eff_pct  = 96.0;
-    double cond_bar      = 8.5;
+struct ManifoldSystem {
+    int op_mode[2] = {1, 1};
+    bool shore_conn[2] = {true, true}, esd_vlv[2] = {true, true};
+    double gate_vlv_pct[2] = {100.0, 100.0}, shore_bar[2] = {4.0, 4.0}, flow_m3_hr[2] = {0.0, 0.0};
+    double liq_pt_bar[2] = {4.0, 4.0}, liq_tt_c[2] = {-41.2, -0.3};
+    double vap_pt_bar[2] = {0.095, 0.095}, vap_tt_c[2] = {-39.0, 0.5};
+    double cond_pt_bar[2] = {8.5, 8.5}, cond_tt_c[2] = {30.0, 30.0};
+    bool line_trv_lift[2] = {false, false}, marvs_lift[4] = {false, false, false, false};
+    double mast_vent_kg_hr[4] = {0.0, 0.0, 0.0, 0.0};
+    bool heater_on = false, booster_on = false;
+    double export_temp_c = -41.5, export_bar = 4.0;
+};
+
+struct BallastSystem {
+    bool pump_run[2] = {false, false};
+    int op_mode = 1; // 0=HOLD, 1=BALLAST IN, 2=DEBALLAST, 3=HEEL P->S, 4=HEEL S->P, 5=GRAVITATE
+    bool ring_xover = true;
+    double wbt_vlv_pct[10] = {100.0, 100.0, 0, 0, 0, 0, 0, 0, 0, 0};
+    double total_flow_m3_hr = 0.0, tank_flow_m3_hr[10] = {0};
+    double pump_flow[2] = {0.0, 0.0}, pump_bar[2] = {0.0, 0.0}, pump_amps[2] = {0.0, 0.0};
 };
 
 struct VLGCEngine {
-    std::array<std::array<double, 2>, 4> ct_m3 = {{{5250, 5250}, {5250, 5250}, {5250, 5250}, {5250, 5250}}};
-    std::array<bool, 4> bhd_open = {true, true, true, true};
-    std::array<TankThermo, 4> th;
-    std::array<std::array<DeepwellPump, 2>, 4> dwp;
-    LiquidManifold man;
-    BallastSystem bal;
-    std::array<Compressor, 4> comp;
-    SafetyFGDSystem fgd;
-    std::vector<SimPreset> presets;
-    bool vap_xover = false, cond_xover = false, liq_xover = false;
-
-    std::array<double, 10> wbt_m3 = {1100, 1100, 1300, 1300, 1300, 1300, 1100, 1100, 600, 800};
+    double sim_time_s = 0.0, time_speed = 1.0, amb_air_c = 25.0, amb_sw_c = 22.0;
+    std::array<std::array<double, 2>, 4> ct_m3{{{5250,5250},{5250,5250},{5250,5250},{5250,5250}}};
+    std::array<bool, 4> bhd_open{true, true, true, true};
+    std::array<TankThermo, 4> th{};
+    std::array<std::array<DeepwellPump, 2>, 4> dwp{};
+    std::array<CompressorUnit, 4> comp{};
+    ManifoldSystem man{};
+    BallastSystem bal{};
+    SafetyFGDSystem fgd{};
+    std::array<double, 10> wbt_m3{1125,1125,1125,1125,1125,1125,1125,1125,720,720};
     int wbt_target = 0;
-
-    double amb_air_c = 25.0;
-    double amb_sw_c  = 22.0;
-
-    double time_speed = 1.0, sim_seconds = 0.0;
-    HydroState hydro;
+    bool vap_xover = false, cond_xover = false, liq_xover = false;
+    HydroState hydro{};
+    std::vector<SimPreset> presets;
 
     VLGCEngine() {
-        presets = get_default_presets();
-        th[0].sys_group = 0; th[1].sys_group = 1; th[2].sys_group = 0; th[3].sys_group = 1;
-        comp[0].sys_id = 0;  comp[1].sys_id = 0;  comp[2].sys_id = 1;  comp[3].sys_id = 1;
-        for (int i = 0; i < 4; ++i) th[i].sync_mass_from_vol(ct_m3[i][0], ct_m3[i][1]);
+        for (int i = 0; i < 4; ++i) {
+            th[i].sys_group = (i < 2) ? 0 : 1;
+            th[i].sync_mass_from_vol(ct_m3[i][0], ct_m3[i][1]);
+            comp[i].sys_id = (i < 2) ? 0 : 1;
+        }
+        presets.assign(DEFAULT_PRESETS.begin(), DEFAULT_PRESETS.end());
     }
 
+    void step(double dt_real) {
+        double dt = dt_real * time_speed;
+        sim_time_s += dt;
+        fgd.step(dt);
+        if (fgd.esd1_active) {
+            for (auto& c : comp) c.mode = 0;
+            for (int i = 0; i < 4; ++i) { dwp[i][0].running = false; dwp[i][1].running = false; th[i].fill_vlv_pct = 0.0; }
+            man.esd_vlv[0] = false; man.esd_vlv[1] = false; man.op_mode[0] = 0; man.op_mode[1] = 0;
+        }
+
+        // 1. Solve Vapor Header Suction Conditions & Step Compressors
+        double sys_suc_kpa[2] = {0.0, 0.0}, sys_vap_c[2] = {-38.0, -38.0};
+        int sys_cnt[2] = {0, 0}, sys_g[2] = {0, 0};
+        for (int i = 0; i < 4; ++i) {
+            int s = th[i].sys_group; sys_g[s] = th[i].grade_id;
+            if (th[i].vap_suc_vlv) { sys_suc_kpa[s] += th[i].press_kpa; sys_vap_c[s] += th[i].t_vapor; sys_cnt[s]++; }
+        }
+        for (int s = 0; s < 2; ++s) {
+            if (sys_cnt[s] > 0) { sys_suc_kpa[s] /= sys_cnt[s]; sys_vap_c[s] /= sys_cnt[s]; }
+            man.vap_pt_bar[s] = sys_suc_kpa[s] / 100.0; man.vap_tt_c[s] = sys_vap_c[s];
+        }
+        if (vap_xover) {
+            double avg_p = 0.5 * (sys_suc_kpa[0] + sys_suc_kpa[1]);
+            sys_suc_kpa[0] = sys_suc_kpa[1] = avg_p;
+        }
+
+        double sys_vap_draw_kg_s[2] = {0.0, 0.0};
+        bool sys_hot[2] = {false, false};
+        for (int c = 0; c < 4; ++c) {
+            int s = comp[c].sys_id;
+            comp[c].step(sys_g[s], sys_suc_kpa[s], sys_vap_c[s], amb_sw_c, sys_cnt[s] > 0);
+            sys_vap_draw_kg_s[s] += comp[c].vap_draw_kg_s;
+            if (comp[c].mode == 2) sys_hot[s] = true;
+            man.cond_pt_bar[s] = comp[c].cond_bar;
+            man.cond_tt_c[s] = (comp[c].mode == 2) ? comp[c].disch_temp_c : (amb_sw_c + 6.5);
+        }
+        if (cond_xover) {
+            double tot = 0.5 * (sys_vap_draw_kg_s[0] + sys_vap_draw_kg_s[1]);
+            sys_vap_draw_kg_s[0] = sys_vap_draw_kg_s[1] = tot;
+        }
+
+        // 2. Solve Liquid Manifold Network Backpressure & Loading Distribution
+        man.flow_m3_hr[0] = 0.0; man.flow_m3_hr[1] = 0.0;
+        double load_w[4] = {0,0,0,0}, sum_lw[2] = {0,0};
+        for (int i = 0; i < 4; ++i) {
+            th[i].load_flow_m3_hr = 0.0;
+            int s = th[i].sys_group;
+            double kv_f = std::pow(th[i].fill_vlv_pct / 100.0, 1.25);
+            bool m_open = man.shore_conn[s] && man.esd_vlv[s] && (man.gate_vlv_pct[s] > 1.0);
+            if (man.op_mode[s] == 2 && m_open && kv_f > 0.01) {
+                double fill_pct = ((ct_m3[i][0] + ct_m3[i][1]) / (2.0 * CT_GEOM[i].max_half_m3)) * 100.0;
+                double p_tk_bar = (th[i].press_kpa / 100.0) + (th[i].liq_density() * 9.81 * (fill_pct / 100.0) * 18.5) / 1e5;
+                load_w[i] = kv_f * std::sqrt(std::max(0.25, man.shore_bar[s] + 1.8 - p_tk_bar));
+                sum_lw[s] += load_w[i];
+            }
+        }
+        // Calculate dynamic manifold backpressure from total active pumps
+        double est_q_sys[2] = {0.0, 0.0};
+        for (int i = 0; i < 4; ++i) {
+            int s = th[i].sys_group;
+            for (int sd = 0; sd < 2; ++sd) if (dwp[i][sd].running) est_q_sys[s] += dwp[i][sd].flow_m3_hr;
+        }
+        double hdr_back_bar[2] = {man.shore_bar[0], man.shore_bar[1]};
+        for (int s = 0; s < 2; ++s) {
+            double kv_g = std::max(0.05, std::pow(man.gate_vlv_pct[s] / 100.0, 1.25));
+            double r_drop = std::pow(est_q_sys[s] / (1800.0 * kv_g), 2.0) * 3.5;
+            hdr_back_bar[s] = man.shore_bar[s] + 0.6 + r_drop;
+        }
+
+        std::array<double, 4> rhos{};
+        std::array<std::array<double, 2>, 4> masses{};
+        for (int i = 0; i < 4; ++i) {
+            man.mast_vent_kg_hr[i] = 0.0;
+            int s = th[i].sys_group;
+            double kv_g = std::pow(man.gate_vlv_pct[s] / 100.0, 1.25);
+            bool m_open = man.shore_conn[s] && man.esd_vlv[s] && (kv_g > 0.01);
+            double rho = th[i].liq_density(), p_sat = th[i].sat_press_kpa(th[i].t_liquid);
+
+            // Torricelli Bulkhead Orifice Level Equalization
+            if (bhd_open[i] && dt > 0.0) {
+                double hp = (ct_m3[i][0] / CT_GEOM[i].max_half_m3) * 18.5;
+                double hs = (ct_m3[i][1] / CT_GEOM[i].max_half_m3) * 18.5;
+                double dh = (hp - hs) + 2.0 * (CT_GEOM[i].half_beam * 0.46) * std::tan(hydro.heel_deg * M_PI / 180.0);
+                if (std::abs(dh) > 0.004) {
+                    double q_orf = 0.65 * 0.125 * std::sqrt(2.0 * 9.81 * std::abs(dh));
+                    double max_eq = (std::abs(dh) / 18.5) * CT_GEOM[i].max_half_m3 * (rho / 1000.0) * 0.45;
+                    double dm = std::min(max_eq, q_orf * dt * (rho / 1000.0)) * (dh > 0.0 ? 1.0 : -1.0);
+                    th[i].mass_p_mt = std::max(0.0, th[i].mass_p_mt - dm);
+                    th[i].mass_s_mt = std::max(0.0, th[i].mass_s_mt + dm);
+                }
+            }
+
+            double net_liq_m3_s = 0.0;
+            for (int sd = 0; sd < 2; ++sd) {
+                double f_side = (ct_m3[i][sd] / CT_GEOM[i].max_half_m3) * 100.0;
+                dwp[i][sd].step(dt, f_side, rho, th[i].press_kpa, p_sat, hdr_back_bar[s], m_open && man.op_mode[s] == 1);
+                if (dwp[i][sd].running && m_open && man.op_mode[s] == 1) {
+                    double q_s = dwp[i][sd].flow_m3_hr / 3600.0;
+                    double dm = q_s * dt * (rho / 1000.0);
+                    if (sd == 0) th[i].mass_p_mt = std::max(0.0, th[i].mass_p_mt - dm);
+                    else         th[i].mass_s_mt = std::max(0.0, th[i].mass_s_mt - dm);
+                    net_liq_m3_s -= q_s;
+                    man.flow_m3_hr[s] += dwp[i][sd].flow_m3_hr;
+                }
+            }
+
+            if (load_w[i] > 0.0 && sum_lw[s] > 0.0) {
+                double q_hdr = 2400.0 * kv_g * std::min(1.0, sum_lw[s] / 0.85);
+                th[i].load_flow_m3_hr = q_hdr * (load_w[i] / sum_lw[s]);
+                double q_s = th[i].load_flow_m3_hr / 3600.0;
+                double dm = q_s * dt * (rho / 1000.0) * 0.5;
+                th[i].mass_p_mt += dm; th[i].mass_s_mt += dm;
+                net_liq_m3_s += q_s;
+                man.flow_m3_hr[s] += th[i].load_flow_m3_hr;
+            }
+
+            double fill_tot = ((ct_m3[i][0] + ct_m3[i][1]) / (2.0 * CT_GEOM[i].max_half_m3)) * 100.0;
+            double tk_vap_draw = (sys_cnt[s] > 0 && th[i].vap_suc_vlv) ? (sys_vap_draw_kg_s[s] / sys_cnt[s]) : 0.0;
+            th[i].step(dt, fill_tot, amb_air_c, amb_sw_c, tk_vap_draw, sys_hot[s], net_liq_m3_s, man.mast_vent_kg_hr[i]);
+            man.marvs_lift[i] = (th[i].press_kpa >= 25.0);
+
+            th[i].sync_vol_from_mass(CT_GEOM[i].max_half_m3, ct_m3[i][0], ct_m3[i][1]);
+            rhos[i] = th[i].liq_density() / 1000.0;
+            masses[i][0] = th[i].mass_p_mt; masses[i][1] = th[i].mass_s_mt;
+        }
+
+        for (int s = 0; s < 2; ++s) {
+            man.liq_pt_bar[s] = (man.flow_m3_hr[s] > 1.0) ? hdr_back_bar[s] : man.shore_bar[s];
+            man.liq_tt_c[s] = th[s * 2].t_liquid;
+        }
+        man.export_temp_c = man.heater_on ? std::max(0.5, man.liq_tt_c[0] + 42.0) : man.liq_tt_c[0];
+        man.export_bar = man.booster_on ? (man.liq_pt_bar[0] + 6.5) : man.liq_pt_bar[0];
+
+        // 3. Ballast System & Hydrostatics
+        int n_bp = (bal.pump_run[0] ? 1 : 0) + (bal.pump_run[1] ? 1 : 0);
+        double max_bp = (n_bp == 0) ? 0.0 : (n_bp == 1 ? 1250.0 : 2320.0), sum_br = 0.0, br_c[10]{};
+        for (int j = 0; j < 10; ++j) {
+            double kv = std::pow(bal.wbt_vlv_pct[j] / 100.0, 1.25);
+            if (kv < 0.01) continue;
+            if (bal.op_mode == 5) {
+                double f_pct = (wbt_m3[j] / WBT_GEOM[j].max_m3) * 100.0;
+                double dh = hydro.tm - wbt_properties(j, f_pct)[0];
+                if (std::abs(dh) > 0.15) br_c[j] = (dh > 0 ? 1.0 : -1.0) * std::min(650.0 * kv, kv * 175.0 * std::sqrt(std::abs(dh)));
+            } else { br_c[j] = 650.0 * kv; sum_br += br_c[j]; }
+        }
+        if (bal.op_mode == 5) {
+            bal.total_flow_m3_hr = 0.0;
+            for (int j = 0; j < 10; ++j) { bal.tank_flow_m3_hr[j] = br_c[j]; bal.total_flow_m3_hr += std::abs(br_c[j]); if (dt > 0) wbt_m3[j] = std::clamp(wbt_m3[j] + (br_c[j]/3600.0)*dt, 0.0, WBT_GEOM[j].max_m3); }
+        } else {
+            bal.total_flow_m3_hr = (n_bp > 0 && bal.op_mode > 0 && sum_br > 0) ? std::min(max_bp, sum_br) : 0.0;
+            for (int p = 0; p < 2; ++p) {
+                bal.pump_flow[p] = bal.pump_run[p] ? (bal.total_flow_m3_hr / std::max(1, n_bp)) : 0.0;
+                bal.pump_bar[p] = bal.pump_run[p] ? (3.4 - (bal.pump_flow[p]/1250.0)*0.85) : 0.0;
+                bal.pump_amps[p] = bal.pump_run[p] ? (68.0 + (bal.pump_flow[p]/1250.0)*112.0) : 0.0;
+            }
+            for (int j = 0; j < 10; ++j) {
+                bal.tank_flow_m3_hr[j] = (bal.total_flow_m3_hr > 0 && sum_br > 0) ? (br_c[j]/sum_br)*bal.total_flow_m3_hr*(bal.op_mode==2?-1.0:1.0) : 0.0;
+                if (dt > 0) wbt_m3[j] = std::clamp(wbt_m3[j] + (bal.tank_flow_m3_hr[j]/3600.0)*dt, 0.0, WBT_GEOM[j].max_m3);
+            }
+        }
+        HullSolver::solve(ct_m3, masses, bhd_open, rhos, wbt_m3, hydro);
+    }
     void apply_preset(int idx) {
         if (idx < 0 || idx >= (int)presets.size()) return;
-        const auto& p = presets[idx];
+        const auto& pr = presets[idx];
         fgd.reset_esd();
-        for (int c = 0; c < 4; ++c) comp[c].mode = p.comp_mode;
-        man.op_mode = {p.man_op, p.man_op};
-        man.shore_conn = {true, true}; man.esd_vlv = {true, true}; man.gate_vlv_pct = {100.0, 100.0};
-        man.heater_on = p.htr_on; man.booster_on = p.bst_on;
-        bal.pump_run = {false, false};
-
+        for (int c = 0; c < 4; ++c) comp[c].mode = pr.comp_mode;
+        man.op_mode[0] = pr.man_op; man.op_mode[1] = pr.man_op;
         for (int i = 0; i < 4; ++i) {
-            int g = (th[i].sys_group == 0) ? p.grade_sys1 : p.grade_sys2;
-            th[i].grade_id = g;
-            double v_half = (p.ct_fill_pct / 100.0) * CT_GEOM[i].max_half_m3;
-            ct_m3[i] = {v_half, v_half};
-            bhd_open[i] = true;
-            th[i].t_top_shell = (g == 1 && p.t_shell_c < -10.0) ? 1.5 : p.t_shell_c;
-            th[i].t_bot_shell = th[i].t_top_shell - 1.2;
-            th[i].t_vapor     = (g == 1 && p.t_vap_c < -10.0) ? 0.5 : p.t_vap_c;
-            th[i].t_liquid    = (g == 1 && p.t_liq_c < -10.0) ? -0.3 : p.t_liq_c;
-            th[i].press_kpa   = p.press_mbarg / 10.0; // Convert preset mbarg to kPa!
-            th[i].hc_pct = p.hc_pct; th[i].ig_pct = p.ig_pct; th[i].o2_pct = p.o2_pct;
-            th[i].purge_mode = p.purge_mode;
-            th[i].vap_suc_vlv = true; th[i].cond_in_vlv = true;
-            th[i].fill_vlv_pct = p.fill_open ? 100.0 : 0.0;
-            th[i].v_ret = {{{p.top_spray, p.bot_spray, p.bot_sparge}, {p.top_spray, p.bot_spray, p.bot_sparge}}};
-            th[i].sync_mass_from_vol(v_half, v_half);
-            dwp[i][0].running = p.dwp_run; dwp[i][1].running = p.dwp_run;
-            dwp[i][0].throttle_pct = 55.0; dwp[i][1].throttle_pct = 55.0;
-            dwp[i][0].trip_code = 0;       dwp[i][1].trip_code = 0;
+            th[i].grade_id = (th[i].sys_group == 0) ? pr.grade_sys1 : pr.grade_sys2;
+            ct_m3[i][0] = (pr.ct_fill_pct / 100.0) * CT_GEOM[i].max_half_m3;
+            ct_m3[i][1] = (pr.ct_fill_pct / 100.0) * CT_GEOM[i].max_half_m3;
+            th[i].t_top_shell = pr.t_shell_c; th[i].t_bot_shell = pr.t_liq_c + 0.3;
+            th[i].t_vapor = pr.t_vap_c; th[i].t_liquid = pr.t_liq_c;
+            th[i].press_kpa = pr.press_kpa;
+            th[i].hc_pct = pr.hc_pct; th[i].ig_pct = pr.ig_pct; th[i].o2_pct = pr.o2_pct;
+            th[i].purge_mode = pr.purge_mode;
+            for (int sd = 0; sd < 2; ++sd) {
+                for (int b = 0; b < 3; ++b) th[i].v_ret[sd][b] = pr.v_ret[b];
+                dwp[i][sd].running = pr.dwp_run; dwp[i][sd].trip_code = 0;
+            }
+            th[i].fill_vlv_pct = pr.fill_vlv ? 100.0 : 0.0;
+            th[i].sync_mass_from_vol(ct_m3[i][0], ct_m3[i][1]);
         }
-        for (int j = 0; j < 10; ++j) wbt_m3[j] = (p.wbt_fill_pct / 100.0) * WBT_GEOM[j].max_m3;
-        if (idx == 11) {
-            man.gate_vlv_pct = {0.0, 0.0};
-            man.liq_pt_bar = {10.6, 10.6};
-        }
+        for (int j = 0; j < 10; ++j) wbt_m3[j] = (pr.wbt_fill_pct / 100.0) * WBT_GEOM[j].max_m3;
+        step(0.0);
     }
 
     void save_custom_preset() {
-        const auto& t0 = th[0];
-        double pct = ((ct_m3[0][0] + ct_m3[0][1]) / (2.0 * CT_GEOM[0].max_half_m3)) * 100.0;
-        double wpct = (wbt_m3[0] / WBT_GEOM[0].max_m3) * 100.0;
-        std::string nm = "Custom Snapshot #" + std::to_string(presets.size() - 11);
-        presets.push_back({
-            nm, "CUSTOM", th[0].grade_id, th[1].grade_id, pct,
-            t0.t_top_shell, t0.t_vapor, t0.t_liquid, t0.press_kpa * 10.0,
-            t0.hc_pct, t0.ig_pct, t0.o2_pct, t0.purge_mode, comp[0].mode,
-            t0.v_ret[0][0], t0.v_ret[0][1], t0.v_ret[0][2],
-            man.op_mode[0], dwp[0][0].running, t0.fill_vlv_pct > 5.0, man.heater_on, man.booster_on, wpct
-        });
-    }
-
-    void step(double real_dt_sec) {
-        double dt = real_dt_sec * time_speed;
-        sim_seconds += dt;
-        bool alarm_triggered = false;
-
-        if (fgd.esd1_active) {
-            for (int c = 0; c < 4; ++c) comp[c].mode = 0;
-            for (int i = 0; i < 4; ++i) {
-                dwp[i][0].running = false; dwp[i][1].running = false;
-                th[i].fill_vlv_pct = 0.0;
-            }
-            man.esd_vlv = {false, false};
-            man.op_mode = {0, 0};
-            man.booster_on = false; man.heater_on = false;
-        }
-
-        // 1. Vapour & Condensate Header Lineups + Seawater Condenser Efficiency
-        bool vap_avail[2] = {false, false};
-        int cond_rec[2] = {0, 0}, suc_tanks[2] = {0, 0};
-        double v_p_sum[2] = {0, 0}, v_t_sum[2] = {0, 0};
-
-        for (int i = 0; i < 4; ++i) {
-            int s = th[i].sys_group;
-            if (th[i].vap_suc_vlv) {
-                if (th[i].press_kpa > 1.2) vap_avail[s] = true;
-                v_p_sum[s] += th[i].press_kpa / 100.0; // Convert kPa to bar for header PT
-                v_t_sum[s] += th[i].t_vapor;
-                suc_tanks[s]++;
-            }
-            bool br_open = false;
-            for (int sd = 0; sd < 2; ++sd) for (int b = 0; b < 3; ++b) if (th[i].v_ret[sd][b]) br_open = true;
-            if (th[i].cond_in_vlv && br_open) cond_rec[s]++;
-        }
-        if (vap_xover && (vap_avail[0] || vap_avail[1])) vap_avail[0] = vap_avail[1] = true;
-
-        double t_cond_c = amb_sw_c + 5.5;
-        double sw_eff = std::clamp(100.0 - std::max(0.0, amb_sw_c - 15.0) * 1.35, 58.0, 100.0);
-        double flow_sys[2] = {0.0, 0.0};
-        bool hot_sys[2] = {false, false};
-
-        for (int c = 0; c < 4; ++c) {
-            int s = comp[c].sys_id;
-            int g_ref = (s == 0) ? th[0].grade_id : th[1].grade_id;
-            double p_cond_kpa = th[s].sat_press_kpa(t_cond_c);
-            comp[c].cond_bar = std::clamp(p_cond_kpa / 100.0 + (g_ref == 1 ? 1.8 : 0.8), 2.2, 18.5);
-            comp[c].cool_eff_pct = (comp[c].mode == 1) ? sw_eff : (comp[c].mode == 2 ? 100.0 : 0.0);
-
-            if (comp[c].mode > 0 && vap_avail[s]) {
-                comp[c].act_flow_kg_s = comp[c].nom_flow_kg_s * (comp[c].mode == 1 ? (sw_eff / 100.0) : 1.0);
-                flow_sys[s] += comp[c].act_flow_kg_s;
-                if (comp[c].mode == 2) hot_sys[s] = true;
-            } else {
-                comp[c].act_flow_kg_s = 0.0;
-            }
-        }
-        if (cond_xover) {
-            double tot = flow_sys[0] + flow_sys[1];
-            flow_sys[0] = flow_sys[1] = tot * 0.5;
-            if (hot_sys[0] || hot_sys[1]) hot_sys[0] = hot_sys[1] = true;
-            int tot_rec = cond_rec[0] + cond_rec[1];
-            cond_rec[0] = cond_rec[1] = std::max(1, tot_rec);
-        }
-
-        for (int s = 0; s < 2; ++s) {
-            man.vap_pt_bar[s]  = suc_tanks[s] > 0 ? (v_p_sum[s] / suc_tanks[s]) : 0.05;
-            man.vap_tt_c[s]    = suc_tanks[s] > 0 ? (v_t_sum[s] / suc_tanks[s]) : amb_air_c;
-            man.cond_pt_bar[s] = flow_sys[s] > 0.1 ? comp[s * 2].cond_bar : man.vap_pt_bar[s];
-            man.cond_tt_c[s]   = flow_sys[s] > 0.1 ? (hot_sys[s] ? 68.0 : t_cond_c) : man.vap_tt_c[s];
-        }
-
-        // 2. Step 8 Deepwell Cargo Pumps & Staggered Shore Loading Network
-        man.total_flow_m3_hr = {0.0, 0.0};
-        man.mast_vent_kg_hr  = {0.0, 0.0, 0.0, 0.0};
-        bool pmp_on_sys[2]   = {false, false};
-        double weighted_t = 0.0, total_q = 0.0;
-
-        // Pre-compute Stagger Loading conductance weights (Kv * sqrt(P_hdr - P_tank_head))
-        std::array<double, 4> load_weight{};
-        double sum_load_w[2] = {0.0, 0.0};
-        for (int i = 0; i < 4; ++i) {
-            th[i].load_flow_m3_hr = 0.0;
-            int sys = th[i].sys_group;
-            double kv_fill = std::pow(std::clamp(th[i].fill_vlv_pct, 0.0, 100.0) / 100.0, 1.25);
-            if (man.op_mode[sys] == 2 && man.is_manifold_open(sys) && kv_fill > 0.01) {
-                double rho_t = th[i].liq_density(th[i].t_liquid) / 1000.0;
-                double fill_frac = (ct_m3[i][0] + ct_m3[i][1]) / (2.0 * CT_GEOM[i].max_half_m3);
-                double p_tk_bar = (th[i].press_kpa / 100.0) + (rho_t * 9.81 * (fill_frac * 18.5)) / 100.0;
-                double dp_load = std::max(0.25, man.shore_bar[sys] + 1.5 - p_tk_bar);
-                load_weight[i] = kv_fill * std::sqrt(dp_load);
-                sum_load_w[sys] += load_weight[i];
-            }
-        }
-
-        for (int i = 0; i < 4; ++i) {
-            int sys = th[i].sys_group;
-            bool m_open = man.is_manifold_open(sys);
-            double kv_gate = man.gate_kv(sys);
-            double rho_t = th[i].liq_density(th[i].t_liquid) / 1000.0;
-            double sat_kpa = th[i].sat_press_kpa(th[i].t_liquid);
-            double max_fl = th[i].max_fill_limit();
-            double max_half = CT_GEOM[i].max_half_m3 * (max_fl / 100.0);
-
-            // Discharging via Deepwell Pumps against Throttled Manifold Gate Valve Backpressure
-            for (int side = 0; side < 2; ++side) {
-                if (dwp[i][side].running) pmp_on_sys[sys] = true;
-                double gate_choke_bar = (kv_gate > 0.02) ? ((1.0 - kv_gate) * 6.5) : 13.8;
-                double eff_bp = (man.op_mode[sys] == 1 && m_open) ?
-                    (man.shore_bar[sys] + gate_choke_bar - (man.booster_on ? 2.5 : 0.0)) : 13.8;
-                double& half_mass = (side == 0) ? th[i].mass_p_mt : th[i].mass_s_mt;
-                if (dwp[i][side].step_pump(dt, ct_m3[i][side], half_mass, CT_GEOM[i].max_half_m3,
-                                           rho_t, th[i].press_kpa, sat_kpa, std::max(0.5, eff_bp))) {
-                    alarm_triggered = true;
-                }
-                if (m_open && man.op_mode[sys] == 1) {
-                    man.total_flow_m3_hr[sys] += dwp[i][side].flow_m3_hr;
-                    weighted_t += dwp[i][side].flow_m3_hr * th[i].t_liquid;
-                    total_q += dwp[i][side].flow_m3_hr;
-                }
-            }
-
-            // Stagger Loading into Tank i proportional to throttled filling valve & static head
-            if (load_weight[i] > 0.0 && sum_load_w[sys] > 0.0) {
-                double max_hdr_q = man.load_rate_m3_hr[sys] * kv_gate * std::min(1.0, sum_load_w[sys] / 0.85);
-                double rate_tk = max_hdr_q * (load_weight[i] / sum_load_w[sys]);
-                th[i].load_flow_m3_hr = rate_tk;
-                if (dt > 0.0) {
-                    double dv_half = std::min(max_half - ct_m3[i][0], (rate_tk / 3600.0) * dt * 0.5);
-                    if (dv_half > 0.0) {
-                        ct_m3[i][0] += dv_half; ct_m3[i][1] += dv_half;
-                        th[i].mass_p_mt += dv_half * rho_t;
-                        th[i].mass_s_mt += dv_half * rho_t;
-                        man.total_flow_m3_hr[sys] += rate_tk;
-                    }
-                }
-            }
-        }
-
-        // Liquid Header PT/TT & Pipeline Thermal Relief Valve (TRV > 10.0 bar g)
-        for (int s = 0; s < 2; ++s) {
-            bool m_open = man.is_manifold_open(s);
-            if (man.total_flow_m3_hr[s] > 1.0) {
-                double choke = (1.0 - man.gate_kv(s)) * 4.5;
-                man.liq_pt_bar[s] = man.shore_bar[s] + (man.op_mode[s] == 1 ? (1.5 + choke) : 0.6);
-                man.liq_tt_c[s]   = (s == 0) ? th[0].t_liquid : th[1].t_liquid;
-            } else if (pmp_on_sys[s] && !m_open) {
-                man.liq_pt_bar[s] = 12.8;
-            } else if (!m_open && dt > 0.0) {
-                double dt_hr = dt / 3600.0;
-                double d_temp = (amb_air_c - man.liq_tt_c[s]) * 0.35 * dt_hr;
-                man.liq_tt_c[s]   += d_temp;
-                man.liq_pt_bar[s] += std::max(0.0, d_temp * 2.4);
-            } else {
-                man.liq_pt_bar[s] = man.shore_bar[s];
-            }
-
-            if (man.liq_pt_bar[s] >= 10.0) {
-                man.trv_lifted[s] = true;
-                man.mast_vent_kg_hr[s] += (man.liq_pt_bar[s] - 9.5) * 180.0;
-                if (dt > 0.0) man.liq_pt_bar[s] = std::max(9.8, man.liq_pt_bar[s] - 1.5 * (dt / 60.0));
-            } else {
-                man.trv_lifted[s] = false;
-            }
-        }
-
-        double base_t = (total_q > 1.0) ? (weighted_t / total_q) : th[0].t_liquid;
-        man.export_temp_c = man.heater_on ? std::max(amb_sw_c - 5.0, base_t + 38.0) : base_t;
-        man.export_bar = man.shore_bar[0] + (man.booster_on ? 5.5 : 0.0);
-
-        // 3. Step Tank Thermodynamics, Torricelli Bulkhead Orifice Flow & MARVS (25.0 kPa g)
-        std::array<double, 4> rho_arr{}, fill_arr{}, fl_arr{}, pr_mbarg_arr{};
-        std::array<int, 4> gr_arr{};
-        std::array<std::array<double, 2>, 4> mass_arr{};
-
-        for (int i = 0; i < 4; ++i) {
-            double max_fl = th[i].max_fill_limit();
-            double rho_t = th[i].liq_density(th[i].t_liquid) / 1000.0;
-
-            // Torricelli Orifice Flow across Open Lower Centerline Bulkhead Valve (DN400, A=0.125 m2)
-            if (bhd_open[i] && dt > 0.0) {
-                double hp_m = (ct_m3[i][0] / CT_GEOM[i].max_half_m3) * 18.5;
-                double hs_m = (ct_m3[i][1] / CT_GEOM[i].max_half_m3) * 18.5;
-                double rad_heel = hydro.heel_deg * (M_PI / 180.0);
-                // Positive heel (+Stbd) lowers Stbd tank bottom relative to Port, driving flow Port -> Stbd!
-                double dh_m = (hp_m - hs_m) + 2.0 * (CT_GEOM[i].half_beam * 0.46) * std::tan(rad_heel);
-                if (std::abs(dh_m) > 0.005) {
-                    double q_orifice_m3_s = 0.65 * 0.125 * std::sqrt(2.0 * 9.81 * std::abs(dh_m));
-                    double max_eq_mt = (std::abs(dh_m) / 18.5) * CT_GEOM[i].max_half_m3 * rho_t * 0.45;
-                    double dm_mt = std::min(max_eq_mt, q_orifice_m3_s * dt * rho_t);
-                    double signed_dm = std::copysign(dm_mt, dh_m);
-                    th[i].mass_p_mt = std::max(0.0, th[i].mass_p_mt - signed_dm);
-                    th[i].mass_s_mt = std::max(0.0, th[i].mass_s_mt + signed_dm);
-                }
-            }
-
-            int s = th[i].sys_group;
-            double cond_to_tk = (cond_rec[s] > 0) ? (flow_sys[s] / cond_rec[s]) : 0.0;
-            double suc_from_tk = (cond_rec[s] > 0) ? cond_to_tk :
-                ((th[i].vap_suc_vlv && suc_tanks[s] > 0) ? (flow_sys[s] / suc_tanks[s]) : 0.0);
-
-            th[i].step_thermo(dt, ct_m3[i], CT_GEOM[i].max_half_m3, amb_air_c, amb_sw_c,
-                              cond_to_tk, hot_sys[s], suc_from_tk);
-
-            // Tank Dome MARVS Relief Valve (Lifts at 25.0 kPa g -> Vents to Mast Riser #(i+1))
-            if (th[i].press_kpa >= 25.0) {
-                man.marvs_lifted[i] = true;
-                double vent_rate_kg_hr = (th[i].press_kpa - 24.5) * 850.0;
-                man.mast_vent_kg_hr[i] += vent_rate_kg_hr;
-                if (dt > 0.0) {
-                    th[i].vap_mass_kg = std::max(100.0, th[i].vap_mass_kg - (vent_rate_kg_hr / 3600.0) * dt);
-                    th[i].press_kpa = std::max(24.8, th[i].press_kpa - 0.8 * (dt / 60.0));
-                }
-            } else {
-                man.marvs_lifted[i] = false;
-            }
-
-            rho_arr[i]  = rho_t;
-            mass_arr[i] = {th[i].mass_p_mt, th[i].mass_s_mt};
-            fill_arr[i] = ((ct_m3[i][0] + ct_m3[i][1]) / (2.0 * CT_GEOM[i].max_half_m3)) * 100.0;
-            fl_arr[i]   = max_fl;
-            pr_mbarg_arr[i] = th[i].press_kpa * 10.0; // Safety FGD checks mbarg internally
-            gr_arr[i]   = th[i].grade_id;
-        }
-
-        if (fgd.step_safety(dt, fill_arr, fl_arr, pr_mbarg_arr, gr_arr)) {
-            alarm_triggered = true;
-            for (int i = 0; i < 4; ++i) if (fgd.hhl_98_trip[i]) th[i].fill_vlv_pct = 0.0;
-        }
-
-        // 4. Step Ballast Pumps (Singular, Parallel, or Gravity) & Throttled WBT Branch Lines
-        bal.step_ballast(dt, wbt_m3, WBT_GEOM, hydro.tm);
-
-        if (alarm_triggered && time_speed > 1.0) time_speed = 1.0;
-        HullSolver::solve(ct_m3, mass_arr, bhd_open, rho_arr, wbt_m3, hydro);
+        SimPreset cp = DEFAULT_PRESETS[0];
+        cp.name = "Custom Snapshot"; cp.category = "CUSTOM";
+        cp.grade_sys1 = th[0].grade_id; cp.grade_sys2 = th[2].grade_id;
+        cp.ct_fill_pct = (ct_m3[0][0] / CT_GEOM[0].max_half_m3) * 100.0;
+        cp.t_shell_c = th[0].t_top_shell; cp.t_vap_c = th[0].t_vapor; cp.t_liq_c = th[0].t_liquid;
+        cp.press_kpa = th[0].press_kpa; cp.comp_mode = comp[0].mode;
+        presets.push_back(cp);
     }
 
     std::string to_json() const {
-        std::ostringstream ss;
-        char b[960];
-        std::snprintf(b, sizeof(b),
-            "{\"spd\":%.0f,\"time\":%.0f,\"air\":%.1f,\"sw\":%.1f,"
-            "\"disp\":%.0f,\"tf\":%.2f,\"ta\":%.2f,\"tm\":%.2f,"
-            "\"trim\":%.2f,\"heel\":%.2f,\"tpc\":%.1f,\"mctc\":%.0f,\"lcb\":%.2f,\"lcf\":%.2f,\"lcg\":%.2f,"
-            "\"kmt\":%.2f,\"kg\":%.2f,\"fsc\":%.2f,\"gm\":%.2f,"
-            "\"sf\":%.1f,\"bm\":%.1f,\"hsf\":%.1f,\"hbm\":%.1f,\"wtgt\":%d,\"xo\":[%d,%d,%d],"
-            "\"esd\":%d,\"cause\":\"%s\",\"mdp\":%.0f,\"cvent\":%d,\"floop\":%d,"
-            "\"bal\":{\"pr\":[%d,%d],\"op\":%d,\"xo\":%d,\"q\":%.0f,\"pq\":[%.0f,%.0f],\"pb\":[%.2f,%.2f],\"pa\":[%.0f,%.0f]},"
-            "\"man\":{\"op\":[%d,%d],\"sc\":[%d,%d],\"ev\":[%d,%d],\"gv\":[%.0f,%.0f],"
-            "\"lpt\":[%.1f,%.1f],\"ltt\":[%.1f,%.1f],\"vpt\":[%.2f,%.2f],\"vtt\":[%.1f,%.1f],"
-            "\"cpt\":[%.1f,%.1f],\"ctt\":[%.1f,%.1f],\"trv\":[%d,%d],\"marvs\":[%d,%d,%d,%d],"
-            "\"mast\":[%.0f,%.0f,%.0f,%.0f],\"sb\":[%.1f,%.1f],\"q\":[%.0f,%.0f],\"htr\":%d,\"bst\":%d,\"et\":%.1f,\"eb\":%.1f},",
-            time_speed, sim_seconds, amb_air_c, amb_sw_c,
-            hydro.disp_mt, hydro.tf, hydro.ta, hydro.tm,
-            hydro.trim_m, hydro.heel_deg, hydro.tpc, hydro.mctc, hydro.lcb, hydro.lcf, hydro.lcg,
-            hydro.kmt, hydro.kg_solid, hydro.fsc, hydro.gm_fluid,
-            hydro.max_sf_pct, hydro.max_bm_pct, hydro.harbor_sf_pct, hydro.harbor_bm_pct,
-            wbt_target, vap_xover?1:0, cond_xover?1:0, liq_xover?1:0,
-            fgd.esd1_active?1:0, fgd.last_cause.c_str(), fgd.motor_rm_dp_pa, fgd.comp_vent_on?1:0, fgd.fire_loop_ok?1:0,
-            bal.pump_run[0]?1:0, bal.pump_run[1]?1:0, bal.op_mode, bal.ring_xover?1:0, bal.total_flow_m3_hr,
-            bal.pump_flow_m3_hr[0], bal.pump_flow_m3_hr[1], bal.pump_bar[0], bal.pump_bar[1], bal.pump_amps[0], bal.pump_amps[1],
-            man.op_mode[0], man.op_mode[1], man.shore_conn[0]?1:0, man.shore_conn[1]?1:0,
-            man.esd_vlv[0]?1:0, man.esd_vlv[1]?1:0, man.gate_vlv_pct[0], man.gate_vlv_pct[1],
-            man.liq_pt_bar[0], man.liq_pt_bar[1], man.liq_tt_c[0], man.liq_tt_c[1],
-            man.vap_pt_bar[0], man.vap_pt_bar[1], man.vap_tt_c[0], man.vap_tt_c[1],
-            man.cond_pt_bar[0], man.cond_pt_bar[1], man.cond_tt_c[0], man.cond_tt_c[1],
-            man.trv_lifted[0]?1:0, man.trv_lifted[1]?1:0,
-            man.marvs_lifted[0]?1:0, man.marvs_lifted[1]?1:0, man.marvs_lifted[2]?1:0, man.marvs_lifted[3]?1:0,
-            man.mast_vent_kg_hr[0], man.mast_vent_kg_hr[1], man.mast_vent_kg_hr[2], man.mast_vent_kg_hr[3],
-            man.shore_bar[0], man.shore_bar[1], man.total_flow_m3_hr[0], man.total_flow_m3_hr[1],
-            man.heater_on?1:0, man.booster_on?1:0, man.export_temp_c, man.export_bar);
-        ss << b;
-
-        ss << "\"ct\":[";
+        std::ostringstream o;
+        o << std::fixed << std::setprecision(2);
+        o << "{\"spd\":" << (int)time_speed << ",\"time\":" << (int)sim_time_s
+          << ",\"air\":" << amb_air_c << ",\"sw\":" << amb_sw_c
+          << ",\"disp\":" << (int)hydro.disp_mt << ",\"tf\":" << hydro.tf << ",\"ta\":" << hydro.ta
+          << ",\"tm\":" << hydro.tm << ",\"trim\":" << hydro.trim_m << ",\"heel\":" << hydro.heel_deg
+          << ",\"tpc\":" << hydro.tpc << ",\"mctc\":" << (int)hydro.mctc
+          << ",\"lcb\":" << hydro.lcb << ",\"lcf\":" << hydro.lcf << ",\"lcg\":" << hydro.lcg
+          << ",\"kmt\":" << hydro.kmt << ",\"kg\":" << hydro.kg_solid << ",\"fsc\":" << hydro.fsc
+          << ",\"gm\":" << hydro.gm_fluid << ",\"sf\":" << hydro.max_sf_pct << ",\"bm\":" << hydro.max_bm_pct
+          << ",\"hsf\":" << hydro.harbor_sf_pct << ",\"hbm\":" << hydro.harbor_bm_pct
+          << ",\"wtgt\":" << wbt_target << ",\"xo\":[" << vap_xover << "," << cond_xover << "," << liq_xover << "]"
+          << ",\"esd\":" << fgd.esd1_active << ",\"cause\":\"" << fgd.last_cause << "\""
+          << ",\"mdp\":" << (int)fgd.motor_rm_dp_pa << ",\"cvent\":" << fgd.comp_vent_on << ",\"floop\":" << fgd.fire_loop_ok
+          << ",\"bal\":{\"pr\":[" << bal.pump_run[0] << "," << bal.pump_run[1] << "],\"op\":" << bal.op_mode
+          << ",\"xo\":" << bal.ring_xover << ",\"q\":" << (int)bal.total_flow_m3_hr
+          << ",\"pq\":[" << (int)bal.pump_flow[0] << "," << (int)bal.pump_flow[1] << "]"
+          << ",\"pb\":[" << bal.pump_bar[0] << "," << bal.pump_bar[1] << "]"
+          << ",\"pa\":[" << (int)bal.pump_amps[0] << "," << (int)bal.pump_amps[1] << "]}"
+          << ",\"man\":{\"op\":[" << man.op_mode[0] << "," << man.op_mode[1] << "],\"sc\":[" << man.shore_conn[0] << "," << man.shore_conn[1] << "]"
+          << ",\"ev\":[" << man.esd_vlv[0] << "," << man.esd_vlv[1] << "],\"gv\":[" << (int)man.gate_vlv_pct[0] << "," << (int)man.gate_vlv_pct[1] << "]"
+          << ",\"lpt\":[" << man.liq_pt_bar[0] << "," << man.liq_pt_bar[1] << "],\"ltt\":[" << man.liq_tt_c[0] << "," << man.liq_tt_c[1] << "]"
+          << ",\"vpt\":[" << man.vap_pt_bar[0] << "," << man.vap_pt_bar[1] << "],\"vtt\":[" << man.vap_tt_c[0] << "," << man.vap_tt_c[1] << "]"
+          << ",\"cpt\":[" << man.cond_pt_bar[0] << "," << man.cond_pt_bar[1] << "],\"ctt\":[" << man.cond_tt_c[0] << "," << man.cond_tt_c[1] << "]"
+          << ",\"trv\":[" << man.line_trv_lift[0] << "," << man.line_trv_lift[1] << "]"
+          << ",\"marvs\":[" << man.marvs_lift[0] << "," << man.marvs_lift[1] << "," << man.marvs_lift[2] << "," << man.marvs_lift[3] << "]"
+          << ",\"mast\":[" << (int)man.mast_vent_kg_hr[0] << "," << (int)man.mast_vent_kg_hr[1] << "," << (int)man.mast_vent_kg_hr[2] << "," << (int)man.mast_vent_kg_hr[3] << "]"
+          << ",\"sb\":[" << man.shore_bar[0] << "," << man.shore_bar[1] << "],\"q\":[" << (int)man.flow_m3_hr[0] << "," << (int)man.flow_m3_hr[1] << "]"
+          << ",\"htr\":" << man.heater_on << ",\"bst\":" << man.booster_on << ",\"et\":" << man.export_temp_c << ",\"eb\":" << man.export_bar << "},\"ct\":[";
         for (int i = 0; i < 4; ++i) {
-            double p_pct = (ct_m3[i][0] / CT_GEOM[i].max_half_m3) * 100.0;
-            double s_pct = (ct_m3[i][1] / CT_GEOM[i].max_half_m3) * 100.0;
-            const auto& t = th[i]; const auto& dp = dwp[i][0]; const auto& ds = dwp[i][1];
-            double rho = t.liq_density(t.t_liquid), mt = t.total_cargo_mt();
-            std::snprintf(b, sizeof(b),
-                "%s{\"p\":%.1f,\"s\":%.1f,\"bhd\":%d,\"g\":%d,\"sys\":%d,\"fl\":%.1f,\"pr\":%.2f,\"hpr\":%.2f,"
-                "\"rho\":%.1f,\"mt\":%.1f,\"vsuc\":%d,\"cin\":%d,\"lact\":%d,\"lq\":%.0f,"
-                "\"ts\":%.2f,\"bs\":%.2f,\"tv\":%.2f,\"tl\":%.2f,\"cr\":%.2f,"
-                "\"hc\":%.1f,\"ig\":%.1f,\"o2\":%.1f,\"prg\":%d,\"fv\":%.0f,"
-                "\"vr\":[%d,%d,%d,%d,%d,%d],"
-                "\"dp\":[%d,%.0f,%.0f,%.1f,%.0f,%d,%d],"
-                "\"ds\":[%d,%.0f,%.0f,%.1f,%.0f,%d,%d]}",
-                (i ? "," : ""), p_pct, s_pct, bhd_open[i]?1:0, t.grade_id, t.sys_group,
-                t.max_fill_limit(), t.press_kpa, t.hold_press_kpa, rho, mt,
-                t.vap_suc_vlv?1:0, t.cond_in_vlv?1:0, t.lineup_active?1:0, t.load_flow_m3_hr,
-                t.t_top_shell, t.t_bot_shell, t.t_vapor, t.t_liquid, t.cool_rate_c_hr,
-                t.hc_pct, t.ig_pct, t.o2_pct, t.purge_mode, t.fill_vlv_pct,
-                t.v_ret[0][0]?1:0, t.v_ret[0][1]?1:0, t.v_ret[0][2]?1:0,
-                t.v_ret[1][0]?1:0, t.v_ret[1][1]?1:0, t.v_ret[1][2]?1:0,
-                dp.running?1:0, dp.throttle_pct, dp.flow_m3_hr, dp.disch_bar, dp.amps, dp.cavitating?1:0, dp.trip_code,
-                ds.running?1:0, ds.throttle_pct, ds.flow_m3_hr, ds.disch_bar, ds.amps, ds.cavitating?1:0, ds.trip_code);
-            ss << b;
+            double p_pct = (ct_m3[i][0] / CT_GEOM[i].max_half_m3) * 100.0, s_pct = (ct_m3[i][1] / CT_GEOM[i].max_half_m3) * 100.0;
+            o << (i ? "," : "") << "{\"p\":" << p_pct << ",\"s\":" << s_pct << ",\"mp\":" << th[i].mass_p_mt << ",\"ms\":" << th[i].mass_s_mt
+              << ",\"bhd\":" << bhd_open[i] << ",\"g\":" << th[i].grade_id << ",\"sys\":" << th[i].sys_group
+              << ",\"fl\":" << th[i].max_fill_limit() << ",\"pr\":" << th[i].press_kpa << ",\"hpr\":" << th[i].hold_press_kpa << ",\"ht\":" << th[i].hold_temp_c
+              << ",\"rho\":" << (int)th[i].liq_density() << ",\"mt\":" << (th[i].mass_p_mt + th[i].mass_s_mt)
+              << ",\"vsuc\":" << th[i].vap_suc_vlv << ",\"cin\":" << th[i].cond_in_vlv << ",\"lact\":" << th[i].loop_active
+              << ",\"lq\":" << (int)th[i].load_flow_m3_hr << ",\"ts\":" << th[i].t_top_shell << ",\"bs\":" << th[i].t_bot_shell
+              << ",\"tv\":" << th[i].t_vapor << ",\"tl\":" << th[i].t_liquid << ",\"cr\":" << th[i].cooling_rate_c_hr
+              << ",\"hc\":" << th[i].hc_pct << ",\"ig\":" << th[i].ig_pct << ",\"o2\":" << th[i].o2_pct
+              << ",\"prg\":" << th[i].purge_mode << ",\"fv\":" << (int)th[i].fill_vlv_pct
+              << ",\"vr\":[" << th[i].v_ret[0][0] << "," << th[i].v_ret[0][1] << "," << th[i].v_ret[0][2] << "," << th[i].v_ret[1][0] << "," << th[i].v_ret[1][1] << "," << th[i].v_ret[1][2] << "]"
+              << ",\"dp\":[" << dwp[i][0].running << "," << (int)dwp[i][0].throttle_pct << "," << (int)dwp[i][0].flow_m3_hr << "," << dwp[i][0].disch_bar << "," << (int)dwp[i][0].amps << "," << dwp[i][0].cavitating << "," << dwp[i][0].trip_code << "]"
+              << ",\"ds\":[" << dwp[i][1].running << "," << (int)dwp[i][1].throttle_pct << "," << (int)dwp[i][1].flow_m3_hr << "," << dwp[i][1].disch_bar << "," << (int)dwp[i][1].amps << "," << dwp[i][1].cavitating << "," << dwp[i][1].trip_code << "]}";
         }
-        ss << "],\"comp\":[";
-        for (int c = 0; c < 4; ++c) {
-            std::snprintf(b, sizeof(b), "%s[%d,%d,%.0f,%.1f]",
-                (c ? "," : ""), comp[c].mode, comp[c].sys_id, comp[c].cool_eff_pct, comp[c].cond_bar);
-            ss << b;
-        }
-        ss << "],\"fgd\":[";
-        for (int z = 0; z < 6; ++z) {
-            const auto& zn = fgd.zones[z];
-            std::snprintf(b, sizeof(b), "%s[%.1f,%.1f,%.0f,%d,%d]",
-                (z ? "," : ""), zn.lel_pct, zn.o2_pct, zn.nh3_ppm, zn.leak_sim?1:0, zn.alarm_lvl);
-            ss << b;
-        }
-        ss << "],\"wbt\":[";
+        o << "],\"comp\":[";
+        for (int c = 0; c < 4; ++c) o << (c ? "," : "") << "[" << comp[c].mode << "," << comp[c].sys_id << "," << (int)comp[c].sw_eff_pct << "," << comp[c].cond_bar << "," << (int)comp[c].load_pct << "," << comp[c].suc_kpa << "]";
+        o << "],\"fgd\":[";
+        for (int z = 0; z < 6; ++z) o << (z ? "," : "") << "[" << fgd.zones[z].hc_lel_pct << "," << fgd.zones[z].o2_pct << "," << (int)fgd.zones[z].nh3_ppm << "," << fgd.zones[z].leak_sim << "," << fgd.zones[z].alarm_state << "]";
+        o << "],\"wbt\":[";
         for (int j = 0; j < 10; ++j) {
-            double pct = (wbt_m3[j] / WBT_GEOM[j].max_m3) * 100.0;
-            int zone = (int)wbt_properties(j, pct)[3];
-            std::snprintf(b, sizeof(b), "%s[%.1f,%d,%.0f,%.0f]",
-                (j ? "," : ""), pct, zone, bal.wbt_vlv_pct[j], bal.branch_flow_m3_hr[j]);
-            ss << b;
+            double f = (wbt_m3[j] / WBT_GEOM[j].max_m3) * 100.0;
+            o << (j ? "," : "") << "[" << f << "," << (int)wbt_properties(j, f)[3] << "," << (int)bal.wbt_vlv_pct[j] << "," << (int)bal.tank_flow_m3_hr[j] << "]";
         }
-        ss << "],\"presets\":[";
-        for (size_t k = 0; k < presets.size(); ++k) {
-            std::snprintf(b, sizeof(b), "%s{\"n\":\"%s\",\"c\":\"%s\"}",
-                (k ? "," : ""), presets[k].name.c_str(), presets[k].category.c_str());
-            ss << b;
-        }
-        ss << "],\"sf_c\":[";
-        for (int s = 0; s < 20; ++s) { std::snprintf(b, sizeof(b), "%s%.1f", (s ? "," : ""), hydro.sf_stations[s]); ss << b; }
-        ss << "],\"bm_c\":[";
-        for (int s = 0; s < 20; ++s) { std::snprintf(b, sizeof(b), "%s%.1f", (s ? "," : ""), hydro.bm_stations[s]); ss << b; }
-        ss << "]}";
-        return ss.str();
+        o << "],\"presets\":[";
+        for (size_t p = 0; p < presets.size(); ++p) o << (p ? "," : "") << "{\"n\":\"" << presets[p].name << "\",\"c\":\"" << presets[p].category << "\"}";
+        o << "],\"sf_c\":[";
+        for (int s = 0; s < 20; ++s) o << (s ? "," : "") << hydro.sf_stations[s];
+        o << "],\"bm_c\":[";
+        for (int s = 0; s < 20; ++s) o << (s ? "," : "") << hydro.bm_stations[s];
+        o << "]}";
+        return o.str();
     }
 };
