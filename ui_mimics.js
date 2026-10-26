@@ -280,7 +280,19 @@ setInterval(() => sync(), 300); sync();
   `;
   document.head.appendChild(st);
 
+  
   function ensureOpsDom() {
+    let v12 = document.getElementById("view12");
+    if (!v12) {
+      v12 = document.createElement("div");
+      v12.id = "view12";
+      v12.style.cssText = "display:none; padding:10px; max-width:900px; margin:0 auto;";
+      v12.innerHTML = "<div id=\"opsDataContent\"></div>";
+      document.body.appendChild(v12);
+    }
+  }
+
+  function _oldEnsureOpsDom() {
     if (!document.getElementById('opsDataContent')) {
       const refView = document.getElementById('presetList') ? document.getElementById('presetList').parentElement : document.body;
       const v12 = document.createElement('div');

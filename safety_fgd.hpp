@@ -23,6 +23,7 @@ struct SafetyFGDSystem {
         for (int z = 0; z < 6; ++z) zones[z].o2_pct = (z < 4) ? 0.8 : 20.9;
     }
 
+    void trigger_manual_esd() { trigger_esd("MANUAL ESD-1 PUSHBUTTON"); }
     void trigger_esd(const std::string& reason) {
         esd1_active = true;
         last_cause = reason;
